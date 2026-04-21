@@ -51,37 +51,24 @@ NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "")
 STATE_FILE = Path(__file__).parent / ".last_state"
 
 
-def fetch_page(url):
-    """Fetch a BMS page. Try curl_cffi first, fall back to Playwright."""
-    # Try curl_cffi first (works from residential IPs)
-    try:
-        session = requests.Session(impersonate="chrome")
-        r = session.get(url, timeout=20)
-        if r.status_code == 200:
-            return r.text
-        log.warning(f"curl_cffi got HTTP {r.status_code}")
-    except Exception as e:
-        log.error(f"curl_cffi error: {e}")
+def fetch_page(url, max_retries=5):
+    """Fetch a BMS page with retries."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            session = requests.Session(impersonate="chrome")
+            r = session.get(url, timeout=20)
+            if r.status_code == 200:
+                return r.text
+            log.warning(f"Attempt {attempt}/{max_retries}: HTTP {r.status_code}")
+        except Exception as e:
+            log.warning(f"Attempt {attempt}/{max_retries}: {e}")
 
-    # Fallback to Playwright (works from data center IPs)
-    if not HAS_PLAYWRIGHT:
-        log.warning("Playwright not installed, cannot retry")
-        return None
+        if attempt < max_retries:
+            delay = random.uniform(8, 12)
+            log.info(f"Retrying in {delay:.0f}s...")
+            time.sleep(delay)
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
-            page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(5000)
-            html = page.content()
-            browser.close()
-            if "Cloudflare" not in html[:500]:
-                return html
-            log.warning("Playwright also blocked by Cloudflare")
-    except Exception as e:
-        log.error(f"Playwright error: {e}")
-
+    log.error(f"All {max_retries} attempts failed for {url.split('/')[-2]}")
     return None
 
 
