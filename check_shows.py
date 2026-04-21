@@ -1,16 +1,26 @@
 import os
-import sys
+import re
 import json
 import smtplib
+import datetime
+import hashlib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from pathlib import Path
 
-import requests
+from curl_cffi import requests
 
-MOVIE_NAME = os.getenv("MOVIE_NAME", "Project Hail Mary")
-CITY = os.getenv("CITY", "Hyderabad")
-REGION_CODE = os.getenv("REGION_CODE", "HYDR")
-REGION_SLUG = os.getenv("REGION_SLUG", "hyderabad")
+MOVIE_NAME = "Project Hail Mary"
+MOVIE_SLUG = "project-hail-mary"
+REGION_SLUG = "hyderabad"
+TARGET_DATE = os.getenv("TARGET_DATE", "20260426")  # Sunday April 26
+
+# Known event codes for Project Hail Mary in Hyderabad
+# ET00451760 = English 2D (AMB shows here)
+# ET00492371 = English DOLBY CINEMA (ALLU shows here)
+EVENT_CODES = os.getenv("EVENT_CODES", "ET00451760,ET00492371").split(",")
+
+PREFERRED_THEATRES = ["amb cinemas", "allu cinemas"]
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -18,129 +28,72 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "")
 
-BMS_API_URL = "https://in.bookmyshow.com/api/explore/v1/discover/movie"
-BMS_SHOWTIMES_URL = "https://in.bookmyshow.com/api/explore/v1/showtimes/movie"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Origin": "https://in.bookmyshow.com",
-    "Referer": "https://in.bookmyshow.com/",
-}
+STATE_FILE = Path(__file__).parent / ".last_state"
 
 
-def search_movie():
-    """Search for the movie on BookMyShow in the given city."""
-    params = {
-        "region": REGION_CODE,
-        "slug": REGION_SLUG,
-        "language": "en",
-        "format": "json",
-    }
+def check_showtimes():
+    session = requests.Session(impersonate="chrome")
+    matched = {}
 
-    try:
-        resp = requests.get(BMS_API_URL, headers=HEADERS, params=params, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        print(f"Error fetching movie list: {e}")
-        return None
+    for code in EVENT_CODES:
+        code = code.strip()
+        url = f"https://in.bookmyshow.com/movies/{REGION_SLUG}/{MOVIE_SLUG}/buytickets/{code}/{TARGET_DATE}"
+        try:
+            r = session.get(url, timeout=20)
+            if r.status_code != 200:
+                print(f"  {code}: HTTP {r.status_code}")
+                continue
+        except Exception as e:
+            print(f"  {code}: Error - {e}")
+            continue
 
-    # Search through the response for our movie
-    movies = []
-    if isinstance(data, dict):
-        # Try common response structures
-        for key in ["data", "movies", "results", "childEvents"]:
-            if key in data:
-                items = data[key]
-                if isinstance(items, list):
-                    movies.extend(items)
-                elif isinstance(items, dict) and "data" in items:
-                    movies.extend(items.get("data", []))
+        # Verify it's Project Hail Mary
+        title_match = re.search(r'<title>(.*?)</title>', r.text, re.IGNORECASE)
+        if title_match and "project" not in title_match.group(1).lower():
+            print(f"  {code}: Wrong movie")
+            continue
 
-    search_term = MOVIE_NAME.lower()
-    for movie in movies:
-        title = movie.get("EventTitle", movie.get("title", movie.get("name", ""))).lower()
-        if search_term in title or title in search_term:
-            print(f"Found movie: {movie.get('EventTitle', movie.get('title', title))}")
-            return movie
+        # Extract date-accurate venue data from Redux JSON in HTML
+        venues = re.findall(r'"venueName":"([^"]+)"', r.text)
+        unique_venues = list(dict.fromkeys(venues))
 
-    return None
+        # Extract showtimes per venue from the same JSON
+        # Pattern: venueName followed by showTime entries
+        for venue in unique_venues:
+            if any(p in venue.lower() for p in PREFERRED_THEATRES):
+                # Find showtimes for this venue
+                # Look for the venue block and extract times
+                venue_pattern = re.escape(venue)
+                # Find all showTime values near this venue
+                venue_blocks = re.findall(
+                    rf'"venueName":"{venue_pattern}".*?(?="venueName"|$)',
+                    r.text, re.DOTALL
+                )
+                times = set()
+                for block in venue_blocks:
+                    found_times = re.findall(r'"showTime":"(\d{2}:\d{2})"', block)
+                    for t in found_times:
+                        h, m = int(t[:2]), t[3:]
+                        suffix = "AM" if h < 12 else "PM"
+                        h12 = h % 12 or 12
+                        times.add(f"{h12:02d}:{m} {suffix}")
 
+                if venue not in matched:
+                    matched[venue] = set()
+                matched[venue].update(times)
+                print(f"  {code}: {venue} -> {', '.join(sorted(times)) if times else '(times in JS only)'}")
 
-def check_showtimes(movie):
-    """Check if showtimes are available for the movie."""
-    event_code = movie.get("EventCode", movie.get("code", movie.get("id", "")))
-    event_group = movie.get("EventGroup", "ET00000000")
+        # Log if no preferred theatres found
+        if not any(any(p in v.lower() for p in PREFERRED_THEATRES) for v in unique_venues):
+            print(f"  {code}: {len(unique_venues)} theatres, no AMB/ALLU")
 
-    if not event_code:
-        print("No event code found for movie")
-        return None
-
-    # Try to fetch showtimes
-    params = {
-        "region": REGION_CODE,
-        "slug": REGION_SLUG,
-        "eventCode": event_code,
-        "language": "en",
-        "format": "json",
-    }
-
-    try:
-        resp = requests.get(BMS_SHOWTIMES_URL, headers=HEADERS, params=params, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            return data
-    except Exception as e:
-        print(f"Error checking showtimes: {e}")
-
-    # Fallback: check the buytickets page
-    slug = movie.get("EventURL", movie.get("slug", MOVIE_NAME.lower().replace(" ", "-")))
-    buytickets_url = f"https://in.bookmyshow.com/{REGION_SLUG}/movies/{slug}/{event_group}"
-
-    try:
-        resp = requests.get(buytickets_url, headers=HEADERS, timeout=30)
-        if resp.status_code == 200 and "book tickets" in resp.text.lower():
-            return {"url": buytickets_url, "available": True}
-    except Exception as e:
-        print(f"Error checking buytickets page: {e}")
-
-    return None
-
-
-def check_direct_search():
-    """Directly search BMS for the movie as a fallback."""
-    search_url = "https://in.bookmyshow.com/api/explore/v1/search"
-    params = {
-        "region": REGION_CODE,
-        "q": MOVIE_NAME,
-        "language": "en",
-        "format": "json",
-    }
-
-    try:
-        resp = requests.get(search_url, headers=HEADERS, params=params, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            results = data if isinstance(data, list) else data.get("data", data.get("results", []))
-            if isinstance(results, list):
-                for item in results:
-                    title = item.get("EventTitle", item.get("title", item.get("name", ""))).lower()
-                    if MOVIE_NAME.lower() in title:
-                        return item
-    except Exception as e:
-        print(f"Error in direct search: {e}")
-
-    return None
+    return {k: sorted(v) for k, v in matched.items()}
 
 
 def send_email(subject, body):
-    """Send email notification."""
     if not all([SMTP_USER, SMTP_PASSWORD, NOTIFY_EMAIL]):
-        print("Email credentials not configured. Skipping email.")
-        print(f"SUBJECT: {subject}")
-        print(f"BODY: {body}")
+        print(f"\nSUBJECT: {subject}")
+        print(f"BODY:\n{body}")
         return False
 
     msg = MIMEMultipart()
@@ -154,55 +107,54 @@ def send_email(subject, body):
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_USER, NOTIFY_EMAIL, msg.as_string())
-        print("Email sent successfully!")
+        print("Email sent!")
         return True
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print(f"Email failed: {e}")
         return False
 
 
 def main():
-    print(f"Checking BookMyShow for '{MOVIE_NAME}' in {CITY}...")
+    display_date = f"{TARGET_DATE[6:8]}/{TARGET_DATE[4:6]}/{TARGET_DATE[:4]}"
+    now = datetime.datetime.now().strftime("%H:%M:%S")
 
-    # Try API search first
-    movie = search_movie()
+    print(f"[{now}] Checking Project Hail Mary for {display_date}...")
+    print(f"  Codes: {', '.join(EVENT_CODES)}")
 
-    # Fallback to direct search
-    if not movie:
-        print("Movie not found in listings, trying direct search...")
-        movie = check_direct_search()
+    matched = check_showtimes()
 
-    if not movie:
-        print(f"'{MOVIE_NAME}' not yet listed on BookMyShow in {CITY}.")
-        sys.exit(0)
+    if not matched:
+        print(f"\n  No shows at AMB/ALLU for {display_date} yet.")
+        if STATE_FILE.exists():
+            STATE_FILE.unlink()
+        return
 
-    print(f"Movie found on BookMyShow!")
-    showtimes = check_showtimes(movie)
+    # Check if anything changed
+    current = json.dumps(matched, sort_keys=True)
+    current_hash = hashlib.md5(current.encode()).hexdigest()
 
-    event_title = movie.get("EventTitle", movie.get("title", MOVIE_NAME))
-    slug = movie.get("EventURL", movie.get("slug", MOVIE_NAME.lower().replace(" ", "-")))
-    event_code = movie.get("EventGroup", movie.get("EventCode", ""))
-    movie_url = f"https://in.bookmyshow.com/{REGION_SLUG}/movies/{slug}/{event_code}"
+    if STATE_FILE.exists() and STATE_FILE.read_text().strip() == current_hash:
+        print(f"\n  No changes since last check.")
+        return
 
-    if showtimes:
-        subject = f"🎬 {event_title} - Shows Available in {CITY}!"
-        body = f"""
-        <h2>🎬 {event_title} is now showing in {CITY}!</h2>
-        <p>Shows are available on BookMyShow.</p>
-        <p><a href="{movie_url}">👉 Book Tickets Now</a></p>
-        <p>Hurry before they sell out!</p>
+    STATE_FILE.write_text(current_hash)
+
+    for theatre, times in matched.items():
+        print(f"\n  ✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
+
+    theatre_html = ""
+    for theatre, times in matched.items():
+        time_str = ', '.join(times) if times else 'Show added — check BookMyShow for times'
+        theatre_html += f"<p><strong>{theatre}</strong><br>{time_str}</p>"
+
+    send_email(
+        f"🎬 Project Hail Mary — NEW shows at AMB/ALLU! ({display_date})",
+        f"""
+        <h2>🎬 Project Hail Mary — shows for {display_date}!</h2>
+        {theatre_html}
+        <p><a href="https://in.bookmyshow.com/hyderabad/movies/project-hail-mary/ET00451760">👉 Book on BookMyShow</a></p>
         """
-        send_email(subject, body)
-        print("SHOWS AVAILABLE! Notification sent.")
-    else:
-        subject = f"🎬 {event_title} - Listed in {CITY} (No shows yet)"
-        body = f"""
-        <h2>🎬 {event_title} is listed on BookMyShow in {CITY}</h2>
-        <p>The movie page is up but showtimes may not be available yet.</p>
-        <p><a href="{movie_url}">👉 Check BookMyShow</a></p>
-        """
-        send_email(subject, body)
-        print("Movie listed but no confirmed showtimes yet. Notification sent.")
+    )
 
 
 if __name__ == "__main__":

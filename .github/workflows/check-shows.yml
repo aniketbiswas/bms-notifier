@@ -2,9 +2,8 @@ name: Check BookMyShow Shows
 
 on:
   schedule:
-    # Runs every 15 minutes
     - cron: '*/15 * * * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   check:
@@ -22,10 +21,8 @@ jobs:
 
       - name: Check for shows
         env:
-          MOVIE_NAME: "Project Hail Mary"
-          CITY: "Hyderabad"
-          REGION_CODE: "HYDR"
-          REGION_SLUG: "hyderabad"
+          TARGET_DATE: "20260426"
+          EVENT_CODES: "ET00451760,ET00492371"
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
