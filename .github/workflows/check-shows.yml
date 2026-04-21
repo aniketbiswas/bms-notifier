@@ -26,6 +26,12 @@ jobs:
           key: bms-state-${{ github.run_id }}
           restore-keys: bms-state-
 
+      - name: Seed state if first run
+        run: |
+          if [ ! -f .last_state ]; then
+            echo "a4a56c491cd07684ea27e997eaa82334" > .last_state
+          fi
+
       - name: Check for shows
         env:
           TARGET_DATE: "20260426"
