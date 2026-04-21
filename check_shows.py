@@ -91,8 +91,8 @@ def check_showtimes():
     for i, code in enumerate(EVENT_CODES):
         code = code.strip()
         if i > 0:
-            delay = random.uniform(3, 7)
-            log.info(f"Waiting {delay:.1f}s before next request...")
+            delay = random.uniform(55, 65)
+            log.info(f"Waiting {delay:.0f}s before next request...")
             time.sleep(delay)
         url = f"https://in.bookmyshow.com/movies/{REGION_SLUG}/{MOVIE_SLUG}/buytickets/{code}/{TARGET_DATE}"
 
