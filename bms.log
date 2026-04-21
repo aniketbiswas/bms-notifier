@@ -3,3 +3,22 @@
 2026-04-22 00:14:21,314 [INFO] ET00451760: 1 theatres, no AMB/ALLU
 2026-04-22 00:14:21,703 [INFO] ET00492371: Data is for 20260422, not 20260426 — skipping
 2026-04-22 00:14:21,704 [INFO] No shows at AMB/ALLU for 26/04/2026 yet.
+2026-04-22 00:15:01,054 [INFO] Checking Project Hail Mary for 26/04/2026...
+2026-04-22 00:15:01,055 [INFO] Codes: ET00451760, ET00492371
+2026-04-22 00:15:01,757 [INFO] ET00451760: 1 theatres, no AMB/ALLU
+2026-04-22 00:15:02,181 [INFO] ET00492371: Data is for 20260422, not 20260426 — skipping
+2026-04-22 00:15:02,182 [INFO] No shows at AMB/ALLU for 26/04/2026 yet.
+2026-04-22 00:16:06,185 [INFO] Checking Project Hail Mary for 22/04/2026...
+2026-04-22 00:16:06,185 [INFO] Codes: ET00451760, ET00492371
+2026-04-22 00:16:06,667 [INFO] ET00451760: ALLU Cinemas: Kokapet -> (times in JS only)
+2026-04-22 00:16:06,669 [INFO] ET00451760: AMB Cinemas: Gachibowli -> (times in JS only)
+2026-04-22 00:16:06,953 [INFO] ET00492371: ALLU Cinemas: Kokapet -> (times in JS only)
+2026-04-22 00:16:06,955 [INFO] ✓ NEW: ALLU Cinemas: Kokapet: Show added!
+2026-04-22 00:16:06,955 [INFO] ✓ NEW: AMB Cinemas: Gachibowli: Show added!
+2026-04-22 00:16:11,645 [INFO] Email sent!
+2026-04-22 00:19:01,538 [INFO] Checking Project Hail Mary for 26/04/2026...
+2026-04-22 00:19:01,539 [INFO] Codes: ET00451760, ET00492371
+2026-04-22 00:19:01,845 [INFO] ET00451760: 1 theatres, no AMB/ALLU
+2026-04-22 00:19:01,845 [INFO] Waiting 4.9s before next request...
+2026-04-22 00:19:07,113 [INFO] ET00492371: Data is for 20260422, not 20260426 — skipping
+2026-04-22 00:19:07,113 [INFO] No shows at AMB/ALLU for 26/04/2026 yet.

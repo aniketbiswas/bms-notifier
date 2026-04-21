@@ -5,6 +5,8 @@ import smtplib
 import datetime
 import hashlib
 import logging
+import time
+import random
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
@@ -57,9 +59,9 @@ def fetch_page(url):
         r = session.get(url, timeout=20)
         if r.status_code == 200:
             return r.text
-        log.warning(f"curl_cffi got HTTP {r.status_code}, trying Playwright...")
+        log.warning(f"curl_cffi got HTTP {r.status_code}")
     except Exception as e:
-        log.error(f"curl_cffi error: {e}, trying Playwright...")
+        log.error(f"curl_cffi error: {e}")
 
     # Fallback to Playwright (works from data center IPs)
     if not HAS_PLAYWRIGHT:
@@ -86,8 +88,12 @@ def fetch_page(url):
 def check_showtimes():
     matched = {}
 
-    for code in EVENT_CODES:
+    for i, code in enumerate(EVENT_CODES):
         code = code.strip()
+        if i > 0:
+            delay = random.uniform(3, 7)
+            log.info(f"Waiting {delay:.1f}s before next request...")
+            time.sleep(delay)
         url = f"https://in.bookmyshow.com/movies/{REGION_SLUG}/{MOVIE_SLUG}/buytickets/{code}/{TARGET_DATE}"
 
         html = fetch_page(url)
