@@ -29,13 +29,13 @@ jobs:
       - name: Seed state if first run
         run: |
           if [ ! -f .last_state ]; then
-            echo "a4a56c491cd07684ea27e997eaa82334" > .last_state
+            echo "none" > .last_state
           fi
 
       - name: Check for shows
         env:
           TARGET_DATE: "20260426"
-          EVENT_CODES: "ET00451760,ET00492371"
+          EVENT_CODES: "ET00451760"
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

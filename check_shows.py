@@ -18,7 +18,7 @@ TARGET_DATE = os.getenv("TARGET_DATE", "20260426")  # Sunday April 26
 # Known event codes for Project Hail Mary in Hyderabad
 # ET00451760 = English 2D (AMB shows here)
 # ET00492371 = English DOLBY CINEMA (ALLU shows here)
-EVENT_CODES = os.getenv("EVENT_CODES", "ET00451760,ET00492371").split(",")
+EVENT_CODES = os.getenv("EVENT_CODES", "ET00451760").split(",")
 
 PREFERRED_THEATRES = ["amb cinemas", "allu cinemas"]
 
