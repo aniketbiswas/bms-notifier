@@ -3,7 +3,7 @@ name: Check BookMyShow Shows
 on:
   schedule:
     # Run at minutes 7 and 37 past every hour (avoids top-of-hour congestion)
-    - cron: '7,37 * * * *'
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
 
 jobs:
