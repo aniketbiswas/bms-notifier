@@ -18,7 +18,7 @@ TARGET_DATE = os.getenv("TARGET_DATE", "20260426")  # Sunday April 26
 # Known event codes for Project Hail Mary in Hyderabad
 # ET00451760 = English 2D (AMB shows here)
 # ET00492371 = English DOLBY CINEMA (ALLU shows here)
-EVENT_CODES = os.getenv("EVENT_CODES", "ET00451760").split(",")
+EVENT_CODES = os.getenv("EVENT_CODES", "ET00451760,ET00492371").split(",")
 
 PREFERRED_THEATRES = ["amb cinemas", "allu cinemas"]
 
@@ -51,6 +51,13 @@ def check_showtimes():
         title_match = re.search(r'<title>(.*?)</title>', r.text, re.IGNORECASE)
         if title_match and "project" not in title_match.group(1).lower():
             print(f"  {code}: Wrong movie")
+            continue
+
+        # Verify the showDate matches our target date
+        # BMS sometimes returns data for the nearest available date instead
+        show_dates = re.findall(r'"showDate":"(\d{8})"', r.text)
+        if show_dates and show_dates[0] != TARGET_DATE:
+            print(f"  {code}: Data is for {show_dates[0]}, not {TARGET_DATE} — skipping")
             continue
 
         # Extract date-accurate venue data from Redux JSON in HTML
