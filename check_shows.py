@@ -4,11 +4,23 @@ import json
 import smtplib
 import datetime
 import hashlib
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
 from curl_cffi import requests
+
+LOG_FILE = Path(__file__).parent / "bms.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(),
+    ],
+)
+log = logging.getLogger("bms")
 
 try:
     from playwright.sync_api import sync_playwright
@@ -45,13 +57,13 @@ def fetch_page(url):
         r = session.get(url, timeout=20)
         if r.status_code == 200:
             return r.text
-        print(f"    curl_cffi got HTTP {r.status_code}, trying Playwright...")
+        log.warning(f"curl_cffi got HTTP {r.status_code}, trying Playwright...")
     except Exception as e:
-        print(f"    curl_cffi error: {e}, trying Playwright...")
+        log.error(f"curl_cffi error: {e}, trying Playwright...")
 
     # Fallback to Playwright (works from data center IPs)
     if not HAS_PLAYWRIGHT:
-        print(f"    Playwright not installed, cannot retry")
+        log.warning("Playwright not installed, cannot retry")
         return None
 
     try:
@@ -64,9 +76,9 @@ def fetch_page(url):
             browser.close()
             if "Cloudflare" not in html[:500]:
                 return html
-            print(f"    Playwright also blocked by Cloudflare")
+            log.warning("Playwright also blocked by Cloudflare")
     except Exception as e:
-        print(f"    Playwright error: {e}")
+        log.error(f"Playwright error: {e}")
 
     return None
 
@@ -80,20 +92,20 @@ def check_showtimes():
 
         html = fetch_page(url)
         if not html:
-            print(f"  {code}: Failed to fetch")
+            log.error(f"{code}: Failed to fetch")
             continue
 
         # Verify it's Project Hail Mary
         title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE)
         if title_match and "project" not in title_match.group(1).lower():
-            print(f"  {code}: Wrong movie")
+            log.warning(f"{code}: Wrong movie")
             continue
 
         # Verify the showDate matches our target date
         # BMS sometimes returns data for the nearest available date instead
         show_dates = re.findall(r'"showDate":"(\d{8})"', html)
         if show_dates and show_dates[0] != TARGET_DATE:
-            print(f"  {code}: Data is for {show_dates[0]}, not {TARGET_DATE} — skipping")
+            log.info(f"{code}: Data is for {show_dates[0]}, not {TARGET_DATE} — skipping")
             continue
 
         # Extract date-accurate venue data from Redux JSON in HTML
@@ -124,19 +136,18 @@ def check_showtimes():
                 if venue not in matched:
                     matched[venue] = set()
                 matched[venue].update(times)
-                print(f"  {code}: {venue} -> {', '.join(sorted(times)) if times else '(times in JS only)'}")
+                log.info(f"{code}: {venue} -> {', '.join(sorted(times)) if times else '(times in JS only)'}")
 
         # Log if no preferred theatres found
         if not any(any(p in v.lower() for p in PREFERRED_THEATRES) for v in unique_venues):
-            print(f"  {code}: {len(unique_venues)} theatres, no AMB/ALLU")
+            log.info(f"{code}: {len(unique_venues)} theatres, no AMB/ALLU")
 
     return {k: sorted(v) for k, v in matched.items()}
 
 
 def send_email(subject, body):
     if not all([SMTP_USER, SMTP_PASSWORD, NOTIFY_EMAIL]):
-        print(f"\nSUBJECT: {subject}")
-        print(f"BODY:\n{body}")
+        log.warning(f"Email not configured. SUBJECT: {subject}")
         return False
 
     msg = MIMEMultipart()
@@ -150,10 +161,10 @@ def send_email(subject, body):
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_USER, NOTIFY_EMAIL, msg.as_string())
-        print("Email sent!")
+        log.info("Email sent!")
         return True
     except Exception as e:
-        print(f"Email failed: {e}")
+        log.error(f"Email failed: {e}")
         return False
 
 
@@ -161,13 +172,13 @@ def main():
     display_date = f"{TARGET_DATE[6:8]}/{TARGET_DATE[4:6]}/{TARGET_DATE[:4]}"
     now = datetime.datetime.now().strftime("%H:%M:%S")
 
-    print(f"[{now}] Checking Project Hail Mary for {display_date}...")
-    print(f"  Codes: {', '.join(EVENT_CODES)}")
+    log.info(f"Checking Project Hail Mary for {display_date}...")
+    log.info(f"Codes: {', '.join(EVENT_CODES)}")
 
     matched = check_showtimes()
 
     if not matched:
-        print(f"\n  No shows at AMB/ALLU for {display_date} yet.")
+        log.info(f"No shows at AMB/ALLU for {display_date} yet.")
         if STATE_FILE.exists():
             STATE_FILE.unlink()
         return
@@ -177,13 +188,14 @@ def main():
     current_hash = hashlib.md5(current.encode()).hexdigest()
 
     if STATE_FILE.exists() and STATE_FILE.read_text().strip() == current_hash:
-        print(f"\n  No changes since last check.")
+        log.info("No changes since last check.")
         return
 
     STATE_FILE.write_text(current_hash)
 
     for theatre, times in matched.items():
-        print(f"\n  ✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
+        log.info(f"✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
+
 
     theatre_html = ""
     for theatre, times in matched.items():
