@@ -10,6 +10,12 @@ from pathlib import Path
 
 from curl_cffi import requests
 
+try:
+    from playwright.sync_api import sync_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+
 MOVIE_NAME = "Project Hail Mary"
 MOVIE_SLUG = "project-hail-mary"
 REGION_SLUG = "hyderabad"
@@ -31,37 +37,67 @@ NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "")
 STATE_FILE = Path(__file__).parent / ".last_state"
 
 
+def fetch_page(url):
+    """Fetch a BMS page. Try curl_cffi first, fall back to Playwright."""
+    # Try curl_cffi first (works from residential IPs)
+    try:
+        session = requests.Session(impersonate="chrome")
+        r = session.get(url, timeout=20)
+        if r.status_code == 200:
+            return r.text
+        print(f"    curl_cffi got HTTP {r.status_code}, trying Playwright...")
+    except Exception as e:
+        print(f"    curl_cffi error: {e}, trying Playwright...")
+
+    # Fallback to Playwright (works from data center IPs)
+    if not HAS_PLAYWRIGHT:
+        print(f"    Playwright not installed, cannot retry")
+        return None
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(5000)
+            html = page.content()
+            browser.close()
+            if "Cloudflare" not in html[:500]:
+                return html
+            print(f"    Playwright also blocked by Cloudflare")
+    except Exception as e:
+        print(f"    Playwright error: {e}")
+
+    return None
+
+
 def check_showtimes():
-    session = requests.Session(impersonate="chrome")
     matched = {}
 
     for code in EVENT_CODES:
         code = code.strip()
         url = f"https://in.bookmyshow.com/movies/{REGION_SLUG}/{MOVIE_SLUG}/buytickets/{code}/{TARGET_DATE}"
-        try:
-            r = session.get(url, timeout=20)
-            if r.status_code != 200:
-                print(f"  {code}: HTTP {r.status_code}")
-                continue
-        except Exception as e:
-            print(f"  {code}: Error - {e}")
+
+        html = fetch_page(url)
+        if not html:
+            print(f"  {code}: Failed to fetch")
             continue
 
         # Verify it's Project Hail Mary
-        title_match = re.search(r'<title>(.*?)</title>', r.text, re.IGNORECASE)
+        title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE)
         if title_match and "project" not in title_match.group(1).lower():
             print(f"  {code}: Wrong movie")
             continue
 
         # Verify the showDate matches our target date
         # BMS sometimes returns data for the nearest available date instead
-        show_dates = re.findall(r'"showDate":"(\d{8})"', r.text)
+        show_dates = re.findall(r'"showDate":"(\d{8})"', html)
         if show_dates and show_dates[0] != TARGET_DATE:
             print(f"  {code}: Data is for {show_dates[0]}, not {TARGET_DATE} — skipping")
             continue
 
         # Extract date-accurate venue data from Redux JSON in HTML
-        venues = re.findall(r'"venueName":"([^"]+)"', r.text)
+        venues = re.findall(r'"venueName":"([^"]+)"', html)
         unique_venues = list(dict.fromkeys(venues))
 
         # Extract showtimes per venue from the same JSON
@@ -74,7 +110,7 @@ def check_showtimes():
                 # Find all showTime values near this venue
                 venue_blocks = re.findall(
                     rf'"venueName":"{venue_pattern}".*?(?="venueName"|$)',
-                    r.text, re.DOTALL
+                    html, re.DOTALL
                 )
                 times = set()
                 for block in venue_blocks:
