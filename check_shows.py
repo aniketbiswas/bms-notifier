@@ -38,11 +38,39 @@ def load_config():
         with open(CONFIG_FILE) as f:
             config = yaml.safe_load(f) or {}
 
+    city = os.getenv("CITY", config.get("city", ""))
+
+    # Build movies list — support both old single-movie and new multi-movie format
+    env_movie = os.getenv("MOVIE", "")
+    if env_movie:
+        # Env var override: single movie
+        movies = [{
+            "name": env_movie,
+            "date": os.getenv("TARGET_DATE", ""),
+            "theatres": [t.strip() for t in os.getenv("THEATRES", "").split(",") if t.strip()],
+        }]
+    elif "movies" in config:
+        # New multi-movie format
+        movies = []
+        for m in config["movies"]:
+            movies.append({
+                "name": m.get("name", ""),
+                "date": m.get("date", ""),
+                "theatres": m.get("theatres", []),
+            })
+    elif "movie" in config:
+        # Old single-movie format (backwards compatible)
+        movies = [{
+            "name": config.get("movie", ""),
+            "date": config.get("date", ""),
+            "theatres": config.get("theatres", []),
+        }]
+    else:
+        movies = []
+
     return {
-        "movie": os.getenv("MOVIE", config.get("movie", "")),
-        "city": os.getenv("CITY", config.get("city", "")),
-        "date": os.getenv("TARGET_DATE", config.get("date", "")),
-        "theatres": os.getenv("THEATRES", ",".join(config.get("theatres", []))),
+        "city": city,
+        "movies": movies,
         "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
         "smtp_port": int(os.getenv("SMTP_PORT", "587")),
         "smtp_user": os.getenv("SMTP_USER", ""),
@@ -182,11 +210,12 @@ def filter_valid_codes(session, all_codes, movie_name, movie_slug, city_slug, ta
     return valid_codes
 
 
-def check_showtimes(config, event_codes, movie_slug):
+def check_showtimes(city, movie_entry, event_codes, movie_slug):
     """Check all event codes for showtimes at preferred theatres."""
-    city_slug = slugify(config["city"])
-    target_date = config["date"]
-    theatres = [t.strip().lower() for t in config["theatres"].split(",") if t.strip()]
+    city_slug = slugify(city)
+    target_date = movie_entry["date"]
+    theatres = [t.strip().lower() for t in movie_entry.get("theatres", []) if t.strip()]
+    watch_all = len(theatres) == 0  # No theatres specified = watch all
     matched = {}
 
     for i, code in enumerate(event_codes):
@@ -202,7 +231,7 @@ def check_showtimes(config, event_codes, movie_slug):
             continue
 
         # Verify movie
-        search_term = config["movie"].lower().split()[0]
+        search_term = movie_entry["name"].lower().split()[0]
         title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE)
         if title_match and search_term not in title_match.group(1).lower():
             log.warning(f"{code}: Wrong movie")
@@ -221,7 +250,7 @@ def check_showtimes(config, event_codes, movie_slug):
             if not name_match:
                 continue
             venue = name_match.group(1)
-            if not any(t in venue.lower() for t in theatres):
+            if not watch_all and not any(t in venue.lower() for t in theatres):
                 continue
 
             found_times = re.findall(r'"showTime":"([^"]+)"', block)
@@ -234,7 +263,7 @@ def check_showtimes(config, event_codes, movie_slug):
         venues = re.findall(r'"venueName":"([^"]+)"', html)
         unique_venues = list(dict.fromkeys(venues))
         for venue in unique_venues:
-            if any(t in venue.lower() for t in theatres):
+            if watch_all or any(t in venue.lower() for t in theatres):
                 if venue not in matched:
                     matched[venue] = set()
 
@@ -242,7 +271,7 @@ def check_showtimes(config, event_codes, movie_slug):
         for venue, times in matched.items():
             log.info(f"{code}: {venue} -> {', '.join(sorted(times)) if times else '(no times in server data)'}")
 
-        if not any(any(t in v.lower() for t in theatres) for v in unique_venues):
+        if not watch_all and not any(any(t in v.lower() for t in theatres) for v in unique_venues):
             log.info(f"{code}: {len(unique_venues)} theatres, none matched")
 
     return {k: sorted(v) for k, v in matched.items()}
@@ -274,81 +303,96 @@ def send_email(config, subject, body):
 def main():
     config = load_config()
 
-    if not all([config["movie"], config["city"], config["date"]]):
-        log.error("Missing config: movie, city, and date are required. Edit config.yml")
+    if not config["city"]:
+        log.error("Missing config: city is required. Edit config.yml")
+        return
+    if not config["movies"]:
+        log.error("Missing config: at least one movie is required. Edit config.yml")
         return
 
-    display_date = f"{config['date'][6:8]}/{config['date'][4:6]}/{config['date'][:4]}"
-    theatres_list = [t.strip() for t in config["theatres"].split(",") if t.strip()]
-
-    log.info(f"Checking '{config['movie']}' in {config['city']} for {display_date}...")
-    if theatres_list:
-        log.info(f"Watching: {', '.join(theatres_list)}")
-
+    city = config["city"]
+    city_slug = slugify(city)
     session = get_session()
 
-    # Step 1: Find the movie
-    movie = discover_movie(session, config["movie"], slugify(config["city"]))
-    if not movie:
-        log.info(f"'{config['movie']}' not listed on BookMyShow in {config['city']}.")
-        return
+    for movie_entry in config["movies"]:
+        movie_name = movie_entry.get("name", "")
+        target_date = movie_entry.get("date", "")
+        theatres = movie_entry.get("theatres", [])
 
-    # Step 2: Get all event codes from movie page
-    all_codes = discover_event_codes(session, movie["url"], config["movie"])
-    if not all_codes:
-        all_codes = [movie["event_code"]] if movie.get("event_code") else []
-    if not all_codes:
-        log.error("No event codes found.")
-        return
+        if not movie_name or not target_date:
+            log.error(f"Skipping entry — name and date are required: {movie_entry}")
+            continue
 
-    # Step 3: Fast pre-filter — only keep codes that belong to this movie + target date
-    valid_codes = filter_valid_codes(
-        session, all_codes, config["movie"], movie["slug"],
-        slugify(config["city"]), config["date"]
-    )
-    if not valid_codes:
-        log.info(f"No shows for {display_date} yet (0/{len(all_codes)} codes have data).")
-        if STATE_FILE.exists():
-            STATE_FILE.unlink()
-        return
+        display_date = f"{target_date[6:8]}/{target_date[4:6]}/{target_date[:4]}"
+        state_file = Path(__file__).parent / f".state_{slugify(movie_name)}_{target_date}"
 
-    # Step 4: Full check on valid codes only (with longer delays)
-    log.info(f"Checking {len(valid_codes)} valid codes (of {len(all_codes)} total)...")
-    matched = check_showtimes(config, valid_codes, movie["slug"])
+        log.info(f"--- {movie_name} ({display_date}) ---")
+        if theatres:
+            log.info(f"Watching: {', '.join(theatres)}")
+        else:
+            log.info("Watching: all theatres")
 
-    if not matched:
-        log.info(f"No shows at your theatres for {display_date} yet.")
-        if STATE_FILE.exists():
-            STATE_FILE.unlink()
-        return
+        # Step 1: Find the movie
+        movie = discover_movie(session, movie_name, city_slug)
+        if not movie:
+            log.info(f"'{movie_name}' not listed on BookMyShow in {city}.")
+            continue
 
-    # Step 4: Check for changes
-    current = json.dumps(matched, sort_keys=True)
-    current_hash = hashlib.md5(current.encode()).hexdigest()
+        # Step 2: Get movie-specific event codes
+        all_codes = discover_event_codes(session, movie["url"], movie_name)
+        if not all_codes:
+            all_codes = [movie["event_code"]] if movie.get("event_code") else []
+        if not all_codes:
+            log.error("No event codes found.")
+            continue
 
-    if STATE_FILE.exists() and STATE_FILE.read_text().strip() == current_hash:
-        log.info("No changes since last check.")
-        return
+        # Step 3: Pre-filter for target date
+        valid_codes = filter_valid_codes(
+            session, all_codes, movie_name, movie["slug"], city_slug, target_date
+        )
+        if not valid_codes:
+            log.info(f"No shows for {display_date} yet (0/{len(all_codes)} codes have data).")
+            if state_file.exists():
+                state_file.unlink()
+            continue
 
-    STATE_FILE.write_text(current_hash)
+        # Step 4: Check showtimes at preferred theatres
+        log.info(f"Checking {len(valid_codes)} valid codes (of {len(all_codes)} total)...")
+        matched = check_showtimes(city, movie_entry, valid_codes, movie["slug"])
 
-    for theatre, times in matched.items():
-        log.info(f"✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
+        if not matched:
+            log.info(f"No shows at your theatres for {display_date} yet.")
+            if state_file.exists():
+                state_file.unlink()
+            continue
 
-    theatre_html = ""
-    for theatre, times in matched.items():
-        time_str = ', '.join(times) if times else 'Show added — check BookMyShow for times'
-        theatre_html += f"<p><strong>{theatre}</strong><br>{time_str}</p>"
+        # Step 5: Check for changes
+        current = json.dumps(matched, sort_keys=True)
+        current_hash = hashlib.md5(current.encode()).hexdigest()
 
-    send_email(
-        config,
-        f"🎬 {config['movie']} — NEW shows! ({display_date})",
-        f"""
-        <h2>🎬 {config['movie']} — shows for {display_date}!</h2>
-        {theatre_html}
-        <p><a href="{movie['url']}">👉 Book on BookMyShow</a></p>
-        """
-    )
+        if state_file.exists() and state_file.read_text().strip() == current_hash:
+            log.info("No changes since last check.")
+            continue
+
+        state_file.write_text(current_hash)
+
+        for theatre, times in matched.items():
+            log.info(f"✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
+
+        theatre_html = ""
+        for theatre, times in matched.items():
+            time_str = ', '.join(times) if times else 'Show added — check BookMyShow for times'
+            theatre_html += f"<p><strong>{theatre}</strong><br>{time_str}</p>"
+
+        send_email(
+            config,
+            f"🎬 {movie_name} — NEW shows! ({display_date})",
+            f"""
+            <h2>🎬 {movie_name} — shows for {display_date}!</h2>
+            {theatre_html}
+            <p><a href="{movie['url']}">👉 Book on BookMyShow</a></p>
+            """
+        )
 
 
 if __name__ == "__main__":

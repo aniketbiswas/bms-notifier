@@ -434,3 +434,34 @@
 2026-04-23 17:19:09,595 [INFO] ET00495860: ALLU Cinemas: Kokapet -> 01:10 PM, 04:20 PM, 07:30 PM, 10:40 PM
 2026-04-23 17:19:09,596 [INFO] ✓ NEW: ALLU Cinemas: Kokapet: 01:10 PM, 04:20 PM, 07:30 PM, 10:40 PM
 2026-04-23 17:19:09,596 [WARNING] Email not configured. SUBJECT: 🎬 Michael — NEW shows! (27/04/2026)
+2026-04-23 17:35:24,462 [INFO] --- Michael (27/04/2026) ---
+2026-04-23 17:35:24,462 [INFO] Watching: AMB Cinemas, Allu Cinemas, Aparna Cinemas
+2026-04-23 17:35:24,462 [INFO] Searching for 'Michael' in hyderabad...
+2026-04-23 17:35:24,944 [INFO] Found: Michael -> https://in.bookmyshow.com/hyderabad/movies/michael/ET00470110
+2026-04-23 17:35:24,944 [INFO] Discovering event codes...
+2026-04-23 17:35:25,218 [INFO] Found 4 movie-specific event codes
+2026-04-23 17:35:30,954 [INFO] Validated 3 codes for 20260427
+2026-04-23 17:35:30,954 [INFO] Checking 3 valid codes (of 4 total)...
+2026-04-23 17:35:31,315 [INFO] ET00470110: 7 theatres, none matched
+2026-04-23 17:35:31,315 [INFO] Waiting 57s before next request...
+2026-04-23 17:36:28,567 [INFO] et00470110: 7 theatres, none matched
+2026-04-23 17:36:28,568 [INFO] Waiting 62s before next request...
+2026-04-23 17:37:30,772 [INFO] ET00495860: ALLU Cinemas: Kokapet -> 01:10 PM, 04:20 PM, 07:30 PM, 10:40 PM
+2026-04-23 17:37:30,775 [INFO] ✓ NEW: ALLU Cinemas: Kokapet: 01:10 PM, 04:20 PM, 07:30 PM, 10:40 PM
+2026-04-23 17:37:30,775 [WARNING] Email not configured. SUBJECT: 🎬 Michael — NEW shows! (27/04/2026)
+2026-04-23 17:37:30,775 [INFO] --- Project Hail Mary (26/04/2026) ---
+2026-04-23 17:37:30,775 [INFO] Watching: AMB Cinemas, Allu Cinemas
+2026-04-23 17:37:30,775 [INFO] Searching for 'Project Hail Mary' in hyderabad...
+2026-04-23 17:37:31,186 [INFO] Found: Project Hail Mary -> https://in.bookmyshow.com/hyderabad/movies/project-hail-mary/ET00451760
+2026-04-23 17:37:31,187 [INFO] Discovering event codes...
+2026-04-23 17:37:31,530 [INFO] Found 4 movie-specific event codes
+2026-04-23 17:37:37,581 [INFO] Validated 2 codes for 20260426
+2026-04-23 17:37:37,583 [INFO] Checking 2 valid codes (of 4 total)...
+2026-04-23 17:37:37,836 [INFO] ET00451760: AMB Cinemas: Gachibowli -> 10:25 PM
+2026-04-23 17:37:37,836 [INFO] ET00451760: ALLU Cinemas: Kokapet -> 06:55 PM, 11:20 AM
+2026-04-23 17:37:37,837 [INFO] Waiting 61s before next request...
+2026-04-23 17:38:39,831 [INFO] et00451760: AMB Cinemas: Gachibowli -> 10:25 PM
+2026-04-23 17:38:39,831 [INFO] et00451760: ALLU Cinemas: Kokapet -> 06:55 PM, 11:20 AM
+2026-04-23 17:38:39,832 [INFO] ✓ NEW: AMB Cinemas: Gachibowli: 10:25 PM
+2026-04-23 17:38:39,832 [INFO] ✓ NEW: ALLU Cinemas: Kokapet: 06:55 PM, 11:20 AM
+2026-04-23 17:38:39,832 [WARNING] Email not configured. SUBJECT: 🎬 Project Hail Mary — NEW shows! (26/04/2026)

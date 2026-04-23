@@ -13,11 +13,21 @@ Click **Fork** on GitHub to create your own copy.
 ### 2. Edit `config.yml`
 
 ```yaml
-movie: "Project Hail Mary"    # Movie name as shown on BMS
 city: "Hyderabad"              # Your city
-date: "20260426"               # Target date (YYYYMMDD)
-theatres:                      # Theatres to watch (partial match)
-  - "AMB Cinemas"
+
+movies:
+  - name: "Project Hail Mary"  # Movie name as shown on BMS
+    date: "20260426"           # Target date (YYYYMMDD)
+    theatres:                  # Optional — omit to watch all theatres
+      - "AMB Cinemas"
+      - "Allu Cinemas"
+
+  - name: "Michael"
+    date: "20260427"
+    theatres:
+      - "PVR"
+      - "INOX"
+```
   - "Allu Cinemas"
 ```
 

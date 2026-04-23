@@ -1,5 +1,6 @@
 bms.log
 cron.log
 .last_state
+.state_*
 __pycache__/
 *.pyc

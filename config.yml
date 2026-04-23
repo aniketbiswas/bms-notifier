@@ -1,7 +1,17 @@
-movie: "Michael"
+# BMS Show Notifier Configuration
+
 city: "Hyderabad"
-date: "20260427"  # Monday April 27
-theatres:
-  - "AMB Cinemas"
-  - "Allu Cinemas"
-  - "Aparna Cinemas"
+
+movies:
+  - name: "Michael"
+    date: "20260427"
+    theatres:                  # Optional — omit to get notified for all theatres
+      - "AMB Cinemas"
+      - "Allu Cinemas"
+      - "Aparna Cinemas"
+
+  - name: "Project Hail Mary"
+    date: "20260426"
+    theatres:
+      - "AMB Cinemas"
+      - "Allu Cinemas"
