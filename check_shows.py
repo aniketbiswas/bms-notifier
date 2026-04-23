@@ -106,7 +106,6 @@ def check_showtimes():
         unique_venues = list(dict.fromkeys(venues))
 
         # Split the entire HTML by venueName to get per-venue blocks
-        # Showtimes appear as "showTime":"HH:MM AM/PM" within venue blocks
         venue_splits = re.split(r'(?="venueName")', html)
 
         for block in venue_splits:
@@ -190,7 +189,6 @@ def main():
 
     for theatre, times in matched.items():
         log.info(f"✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
-
 
     theatre_html = ""
     for theatre, times in matched.items():
