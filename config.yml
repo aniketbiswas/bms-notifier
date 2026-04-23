@@ -4,14 +4,18 @@ city: "Hyderabad"
 
 movies:
   - name: "Michael"
-    date: "20260427"
+    dates:                     # Single date or multiple dates
+      - "20260427"
     theatres:                  # Optional — omit to get notified for all theatres
       - "AMB Cinemas"
       - "Allu Cinemas"
       - "Aparna Cinemas"
 
   - name: "Project Hail Mary"
-    date: "20260426"
+    dates:
+      - "20260425"             # Friday
+      - "20260426"             # Saturday
+      - "20260427"             # Sunday
     theatres:
       - "AMB Cinemas"
       - "Allu Cinemas"

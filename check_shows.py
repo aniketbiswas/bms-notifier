@@ -44,25 +44,33 @@ def load_config():
     env_movie = os.getenv("MOVIE", "")
     if env_movie:
         # Env var override: single movie
+        dates = [d.strip() for d in os.getenv("TARGET_DATE", "").split(",") if d.strip()]
         movies = [{
             "name": env_movie,
-            "date": os.getenv("TARGET_DATE", ""),
+            "dates": dates,
             "theatres": [t.strip() for t in os.getenv("THEATRES", "").split(",") if t.strip()],
         }]
     elif "movies" in config:
-        # New multi-movie format
+        # Multi-movie format
         movies = []
         for m in config["movies"]:
+            # Support both "date" (string) and "dates" (array)
+            dates = m.get("dates", [])
+            if not dates and m.get("date"):
+                dates = [m["date"]]
             movies.append({
                 "name": m.get("name", ""),
-                "date": m.get("date", ""),
+                "dates": [str(d) for d in dates],
                 "theatres": m.get("theatres", []),
             })
     elif "movie" in config:
         # Old single-movie format (backwards compatible)
+        dates = config.get("dates", [])
+        if not dates and config.get("date"):
+            dates = [config["date"]]
         movies = [{
             "name": config.get("movie", ""),
-            "date": config.get("date", ""),
+            "dates": [str(d) for d in dates],
             "theatres": config.get("theatres", []),
         }]
     else:
@@ -316,29 +324,20 @@ def main():
 
     for movie_entry in config["movies"]:
         movie_name = movie_entry.get("name", "")
-        target_date = movie_entry.get("date", "")
+        dates = movie_entry.get("dates", [])
         theatres = movie_entry.get("theatres", [])
 
-        if not movie_name or not target_date:
-            log.error(f"Skipping entry — name and date are required: {movie_entry}")
+        if not movie_name or not dates:
+            log.error(f"Skipping entry — name and dates are required: {movie_entry}")
             continue
 
-        display_date = f"{target_date[6:8]}/{target_date[4:6]}/{target_date[:4]}"
-        state_file = Path(__file__).parent / f".state_{slugify(movie_name)}_{target_date}"
-
-        log.info(f"--- {movie_name} ({display_date}) ---")
-        if theatres:
-            log.info(f"Watching: {', '.join(theatres)}")
-        else:
-            log.info("Watching: all theatres")
-
-        # Step 1: Find the movie
+        # Step 1: Find the movie (once per movie, reuse across dates)
         movie = discover_movie(session, movie_name, city_slug)
         if not movie:
             log.info(f"'{movie_name}' not listed on BookMyShow in {city}.")
             continue
 
-        # Step 2: Get movie-specific event codes
+        # Step 2: Get movie-specific event codes (once per movie)
         all_codes = discover_event_codes(session, movie["url"], movie_name)
         if not all_codes:
             all_codes = [movie["event_code"]] if movie.get("event_code") else []
@@ -346,53 +345,66 @@ def main():
             log.error("No event codes found.")
             continue
 
-        # Step 3: Pre-filter for target date
-        valid_codes = filter_valid_codes(
-            session, all_codes, movie_name, movie["slug"], city_slug, target_date
-        )
-        if not valid_codes:
-            log.info(f"No shows for {display_date} yet (0/{len(all_codes)} codes have data).")
-            if state_file.exists():
-                state_file.unlink()
-            continue
+        # Step 3: Check each date
+        for target_date in dates:
+            target_date = str(target_date)
+            display_date = f"{target_date[6:8]}/{target_date[4:6]}/{target_date[:4]}"
+            state_file = Path(__file__).parent / f".state_{slugify(movie_name)}_{target_date}"
 
-        # Step 4: Check showtimes at preferred theatres
-        log.info(f"Checking {len(valid_codes)} valid codes (of {len(all_codes)} total)...")
-        matched = check_showtimes(city, movie_entry, valid_codes, movie["slug"])
+            log.info(f"--- {movie_name} ({display_date}) ---")
+            if theatres:
+                log.info(f"Watching: {', '.join(theatres)}")
+            else:
+                log.info("Watching: all theatres")
 
-        if not matched:
-            log.info(f"No shows at your theatres for {display_date} yet.")
-            if state_file.exists():
-                state_file.unlink()
-            continue
+            # Pre-filter for target date
+            date_entry = {"name": movie_name, "date": target_date, "theatres": theatres}
+            valid_codes = filter_valid_codes(
+                session, all_codes, movie_name, movie["slug"], city_slug, target_date
+            )
+            if not valid_codes:
+                log.info(f"No shows for {display_date} yet (0/{len(all_codes)} codes have data).")
+                if state_file.exists():
+                    state_file.unlink()
+                continue
 
-        # Step 5: Check for changes
-        current = json.dumps(matched, sort_keys=True)
-        current_hash = hashlib.md5(current.encode()).hexdigest()
+            # Check showtimes at preferred theatres
+            log.info(f"Checking {len(valid_codes)} valid codes (of {len(all_codes)} total)...")
+            matched = check_showtimes(city, date_entry, valid_codes, movie["slug"])
 
-        if state_file.exists() and state_file.read_text().strip() == current_hash:
-            log.info("No changes since last check.")
-            continue
+            if not matched:
+                log.info(f"No shows at your theatres for {display_date} yet.")
+                if state_file.exists():
+                    state_file.unlink()
+                continue
 
-        state_file.write_text(current_hash)
+            # Check for changes
+            current = json.dumps(matched, sort_keys=True)
+            current_hash = hashlib.md5(current.encode()).hexdigest()
 
-        for theatre, times in matched.items():
-            log.info(f"✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
+            if state_file.exists() and state_file.read_text().strip() == current_hash:
+                log.info("No changes since last check.")
+                continue
 
-        theatre_html = ""
-        for theatre, times in matched.items():
-            time_str = ', '.join(times) if times else 'Show added — check BookMyShow for times'
-            theatre_html += f"<p><strong>{theatre}</strong><br>{time_str}</p>"
+            state_file.write_text(current_hash)
 
-        send_email(
-            config,
-            f"🎬 {movie_name} — NEW shows! ({display_date})",
-            f"""
-            <h2>🎬 {movie_name} — shows for {display_date}!</h2>
-            {theatre_html}
-            <p><a href="{movie['url']}">👉 Book on BookMyShow</a></p>
-            """
-        )
+            for theatre, times in matched.items():
+                log.info(f"✓ NEW: {theatre}: {', '.join(times) if times else 'Show added!'}")
+
+            theatre_html = ""
+            for theatre, times in matched.items():
+                time_str = ', '.join(times) if times else 'Show added — check BookMyShow for times'
+                theatre_html += f"<p><strong>{theatre}</strong><br>{time_str}</p>"
+
+            send_email(
+                config,
+                f"🎬 {movie_name} — NEW shows! ({display_date})",
+                f"""
+                <h2>🎬 {movie_name} — shows for {display_date}!</h2>
+                {theatre_html}
+                <p><a href="{movie['url']}">👉 Book on BookMyShow</a></p>
+                """
+            )
 
 
 if __name__ == "__main__":

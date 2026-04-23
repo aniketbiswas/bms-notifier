@@ -17,13 +17,17 @@ city: "Hyderabad"              # Your city
 
 movies:
   - name: "Project Hail Mary"  # Movie name as shown on BMS
-    date: "20260426"           # Target date (YYYYMMDD)
+    dates:                     # Single or multiple dates (YYYYMMDD)
+      - "20260425"             # Friday
+      - "20260426"             # Saturday
+      - "20260427"             # Sunday
     theatres:                  # Optional — omit to watch all theatres
       - "AMB Cinemas"
       - "Allu Cinemas"
 
   - name: "Michael"
-    date: "20260427"
+    dates:
+      - "20260427"
     theatres:
       - "PVR"
       - "INOX"
