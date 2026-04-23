@@ -105,31 +105,33 @@ def check_showtimes():
         venues = re.findall(r'"venueName":"([^"]+)"', html)
         unique_venues = list(dict.fromkeys(venues))
 
-        # Extract showtimes per venue from the same JSON
-        # Pattern: venueName followed by showTime entries
-        for venue in unique_venues:
-            if any(p in venue.lower() for p in PREFERRED_THEATRES):
-                # Find showtimes for this venue
-                # Look for the venue block and extract times
-                venue_pattern = re.escape(venue)
-                # Find all showTime values near this venue
-                venue_blocks = re.findall(
-                    rf'"venueName":"{venue_pattern}".*?(?="venueName"|$)',
-                    html, re.DOTALL
-                )
-                times = set()
-                for block in venue_blocks:
-                    found_times = re.findall(r'"showTime":"(\d{2}:\d{2})"', block)
-                    for t in found_times:
-                        h, m = int(t[:2]), t[3:]
-                        suffix = "AM" if h < 12 else "PM"
-                        h12 = h % 12 or 12
-                        times.add(f"{h12:02d}:{m} {suffix}")
+        # Split the entire HTML by venueName to get per-venue blocks
+        # Showtimes appear as "showTime":"HH:MM AM/PM" within venue blocks
+        venue_splits = re.split(r'(?="venueName")', html)
 
+        for block in venue_splits:
+            name_match = re.search(r'"venueName":"([^"]+)"', block)
+            if not name_match:
+                continue
+            venue = name_match.group(1)
+            if not any(p in venue.lower() for p in PREFERRED_THEATRES):
+                continue
+
+            found_times = re.findall(r'"showTime":"([^"]+)"', block)
+            if found_times:
                 if venue not in matched:
                     matched[venue] = set()
-                matched[venue].update(times)
-                log.info(f"{code}: {venue} -> {', '.join(sorted(times)) if times else '(times in JS only)'}")
+                matched[venue].update(found_times)
+
+        # Also check if venue appears in unique list but no times found yet
+        for venue in unique_venues:
+            if any(p in venue.lower() for p in PREFERRED_THEATRES):
+                if venue not in matched:
+                    matched[venue] = set()
+
+        # Log found theatres
+        for venue, times in matched.items():
+            log.info(f"{code}: {venue} -> {', '.join(sorted(times)) if times else '(no times in server data)'}")
 
         # Log if no preferred theatres found
         if not any(any(p in v.lower() for p in PREFERRED_THEATRES) for v in unique_venues):
