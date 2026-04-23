@@ -7,12 +7,14 @@ import hashlib
 import logging
 import time
 import random
+import yaml
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
 from curl_cffi import requests
 
+# --- Logging ---
 LOG_FILE = Path(__file__).parent / "bms.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -24,31 +26,35 @@ logging.basicConfig(
 )
 log = logging.getLogger("bms")
 
-try:
-    from playwright.sync_api import sync_playwright
-    HAS_PLAYWRIGHT = True
-except ImportError:
-    HAS_PLAYWRIGHT = False
-
-MOVIE_NAME = "Project Hail Mary"
-MOVIE_SLUG = "project-hail-mary"
-REGION_SLUG = "hyderabad"
-TARGET_DATE = os.getenv("TARGET_DATE", "20260426")  # Sunday April 26
-
-# Known event codes for Project Hail Mary in Hyderabad
-# ET00451760 = English 2D (AMB shows here)
-# ET00492371 = English DOLBY CINEMA (ALLU shows here)
-EVENT_CODES = os.getenv("EVENT_CODES", "ET00451760,ET00492371").split(",")
-
-PREFERRED_THEATRES = ["amb cinemas", "allu cinemas"]
-
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "")
-
+# --- Load config ---
+CONFIG_FILE = Path(__file__).parent / "config.yml"
 STATE_FILE = Path(__file__).parent / ".last_state"
+
+
+def load_config():
+    """Load config from config.yml, with env var overrides."""
+    config = {}
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE) as f:
+            config = yaml.safe_load(f) or {}
+
+    return {
+        "movie": os.getenv("MOVIE", config.get("movie", "")),
+        "city": os.getenv("CITY", config.get("city", "")),
+        "date": os.getenv("TARGET_DATE", config.get("date", "")),
+        "theatres": os.getenv("THEATRES", ",".join(config.get("theatres", []))),
+        "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_user": os.getenv("SMTP_USER", ""),
+        "smtp_password": os.getenv("SMTP_PASSWORD", ""),
+        "notify_email": os.getenv("NOTIFY_EMAIL", ""),
+    }
+
+
+# --- BMS Functions ---
+
+def get_session():
+    return requests.Session(impersonate="chrome")
 
 
 def fetch_page(url, max_retries=5):
@@ -68,52 +74,144 @@ def fetch_page(url, max_retries=5):
             log.info(f"Retrying in {delay:.0f}s...")
             time.sleep(delay)
 
-    log.error(f"All {max_retries} attempts failed for {url.split('/')[-2]}")
+    log.error(f"All {max_retries} attempts failed")
     return None
 
 
-def check_showtimes():
+def slugify(name):
+    """Convert movie name to URL slug."""
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+
+
+def discover_movie(session, movie_name, city_slug):
+    """Find the movie on BMS and return its URL and primary event code."""
+    url = f"https://in.bookmyshow.com/explore/movies-{city_slug}"
+    log.info(f"Searching for '{movie_name}' in {city_slug}...")
+
+    try:
+        r = session.get(url, timeout=20)
+        if r.status_code != 200:
+            log.error(f"Movies page returned {r.status_code}")
+            return None
+    except Exception as e:
+        log.error(f"Error loading movies page: {e}")
+        return None
+
+    scripts = re.findall(r'<script[^>]*>(.*?)</script>', r.text, re.DOTALL)
+    search_term = movie_name.lower()
+
+    for s in scripts:
+        try:
+            data = json.loads(s)
+            if isinstance(data, dict) and data.get("@type") == "ItemList":
+                for item in data.get("itemListElement", []):
+                    name = item.get("name", "").lower()
+                    if search_term in name or name in search_term:
+                        movie_url = item.get("url", "")
+                        ec_match = re.search(r'(ET\d+)', movie_url)
+                        slug_match = re.search(r'/movies/([^/]+)/', movie_url)
+                        log.info(f"Found: {item.get('name')} -> {movie_url}")
+                        return {
+                            "name": item.get("name"),
+                            "url": movie_url,
+                            "event_code": ec_match.group(1) if ec_match else None,
+                            "slug": slug_match.group(1) if slug_match else slugify(movie_name),
+                        }
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    return None
+
+
+def discover_event_codes(session, movie_url, movie_name):
+    """Get all event codes (formats/languages) for the movie."""
+    log.info("Discovering event codes...")
+    try:
+        r = session.get(movie_url, timeout=20)
+        if r.status_code != 200:
+            return []
+
+        all_codes = set(re.findall(r'(ET\d{8,})', r.text))
+        log.info(f"Found {len(all_codes)} event codes on movie page")
+        return list(all_codes)
+    except Exception as e:
+        log.error(f"Error getting event codes: {e}")
+        return []
+
+
+def filter_valid_codes(session, all_codes, movie_name, movie_slug, city_slug, target_date):
+    """Filter event codes to only those that belong to this movie and have data for target date."""
+    valid_codes = []
+    search_term = movie_name.lower().split()[0]
+
+    for i, code in enumerate(all_codes):
+        if i > 0:
+            delay = random.uniform(1, 3)
+            time.sleep(delay)
+
+        url = f"https://in.bookmyshow.com/movies/{city_slug}/{movie_slug}/buytickets/{code}/{target_date}"
+        try:
+            session = requests.Session(impersonate="chrome")
+            r = session.get(url, timeout=15)
+            if r.status_code != 200:
+                continue
+
+            # Verify movie title
+            title_match = re.search(r'<title>(.*?)</title>', r.text, re.IGNORECASE)
+            if title_match and search_term not in title_match.group(1).lower():
+                continue
+
+            # Verify showDate matches target
+            show_dates = re.findall(r'"showDate":"(\d{8})"', r.text)
+            if show_dates and show_dates[0] == target_date:
+                valid_codes.append(code)
+        except Exception:
+            continue
+
+    log.info(f"Validated {len(valid_codes)} codes for {target_date}")
+    return valid_codes
+
+
+def check_showtimes(config, event_codes, movie_slug):
+    """Check all event codes for showtimes at preferred theatres."""
+    city_slug = slugify(config["city"])
+    target_date = config["date"]
+    theatres = [t.strip().lower() for t in config["theatres"].split(",") if t.strip()]
     matched = {}
 
-    for i, code in enumerate(EVENT_CODES):
-        code = code.strip()
+    for i, code in enumerate(event_codes):
         if i > 0:
             delay = random.uniform(55, 65)
             log.info(f"Waiting {delay:.0f}s before next request...")
             time.sleep(delay)
-        url = f"https://in.bookmyshow.com/movies/{REGION_SLUG}/{MOVIE_SLUG}/buytickets/{code}/{TARGET_DATE}"
 
+        url = f"https://in.bookmyshow.com/movies/{city_slug}/{movie_slug}/buytickets/{code}/{target_date}"
         html = fetch_page(url)
         if not html:
             log.error(f"{code}: Failed to fetch")
             continue
 
-        # Verify it's Project Hail Mary
+        # Verify movie
+        search_term = config["movie"].lower().split()[0]
         title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE)
-        if title_match and "project" not in title_match.group(1).lower():
+        if title_match and search_term not in title_match.group(1).lower():
             log.warning(f"{code}: Wrong movie")
             continue
 
-        # Verify the showDate matches our target date
-        # BMS sometimes returns data for the nearest available date instead
+        # Verify date
         show_dates = re.findall(r'"showDate":"(\d{8})"', html)
-        if show_dates and show_dates[0] != TARGET_DATE:
-            log.info(f"{code}: Data is for {show_dates[0]}, not {TARGET_DATE} — skipping")
+        if show_dates and show_dates[0] != target_date:
+            log.info(f"{code}: Data is for {show_dates[0]}, not {target_date} — skipping")
             continue
 
-        # Extract date-accurate venue data from Redux JSON in HTML
-        venues = re.findall(r'"venueName":"([^"]+)"', html)
-        unique_venues = list(dict.fromkeys(venues))
-
-        # Split the entire HTML by venueName to get per-venue blocks
+        # Extract venues and showtimes
         venue_splits = re.split(r'(?="venueName")', html)
-
         for block in venue_splits:
             name_match = re.search(r'"venueName":"([^"]+)"', block)
             if not name_match:
                 continue
             venue = name_match.group(1)
-            if not any(p in venue.lower() for p in PREFERRED_THEATRES):
+            if not any(t in venue.lower() for t in theatres):
                 continue
 
             found_times = re.findall(r'"showTime":"([^"]+)"', block)
@@ -122,39 +220,40 @@ def check_showtimes():
                     matched[venue] = set()
                 matched[venue].update(found_times)
 
-        # Also check if venue appears in unique list but no times found yet
+        # Check unique venues list too
+        venues = re.findall(r'"venueName":"([^"]+)"', html)
+        unique_venues = list(dict.fromkeys(venues))
         for venue in unique_venues:
-            if any(p in venue.lower() for p in PREFERRED_THEATRES):
+            if any(t in venue.lower() for t in theatres):
                 if venue not in matched:
                     matched[venue] = set()
 
-        # Log found theatres
+        # Log results
         for venue, times in matched.items():
             log.info(f"{code}: {venue} -> {', '.join(sorted(times)) if times else '(no times in server data)'}")
 
-        # Log if no preferred theatres found
-        if not any(any(p in v.lower() for p in PREFERRED_THEATRES) for v in unique_venues):
-            log.info(f"{code}: {len(unique_venues)} theatres, no AMB/ALLU")
+        if not any(any(t in v.lower() for t in theatres) for v in unique_venues):
+            log.info(f"{code}: {len(unique_venues)} theatres, none matched")
 
     return {k: sorted(v) for k, v in matched.items()}
 
 
-def send_email(subject, body):
-    if not all([SMTP_USER, SMTP_PASSWORD, NOTIFY_EMAIL]):
+def send_email(config, subject, body):
+    if not all([config["smtp_user"], config["smtp_password"], config["notify_email"]]):
         log.warning(f"Email not configured. SUBJECT: {subject}")
         return False
 
     msg = MIMEMultipart()
-    msg["From"] = SMTP_USER
-    msg["To"] = NOTIFY_EMAIL
+    msg["From"] = config["smtp_user"]
+    msg["To"] = config["notify_email"]
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "html"))
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        with smtplib.SMTP(config["smtp_server"], config["smtp_port"]) as server:
             server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, NOTIFY_EMAIL, msg.as_string())
+            server.login(config["smtp_user"], config["smtp_password"])
+            server.sendmail(config["smtp_user"], config["notify_email"], msg.as_string())
         log.info("Email sent!")
         return True
     except Exception as e:
@@ -163,21 +262,57 @@ def send_email(subject, body):
 
 
 def main():
-    display_date = f"{TARGET_DATE[6:8]}/{TARGET_DATE[4:6]}/{TARGET_DATE[:4]}"
-    now = datetime.datetime.now().strftime("%H:%M:%S")
+    config = load_config()
 
-    log.info(f"Checking Project Hail Mary for {display_date}...")
-    log.info(f"Codes: {', '.join(EVENT_CODES)}")
+    if not all([config["movie"], config["city"], config["date"]]):
+        log.error("Missing config: movie, city, and date are required. Edit config.yml")
+        return
 
-    matched = check_showtimes()
+    display_date = f"{config['date'][6:8]}/{config['date'][4:6]}/{config['date'][:4]}"
+    theatres_list = [t.strip() for t in config["theatres"].split(",") if t.strip()]
 
-    if not matched:
-        log.info(f"No shows at AMB/ALLU for {display_date} yet.")
+    log.info(f"Checking '{config['movie']}' in {config['city']} for {display_date}...")
+    if theatres_list:
+        log.info(f"Watching: {', '.join(theatres_list)}")
+
+    session = get_session()
+
+    # Step 1: Find the movie
+    movie = discover_movie(session, config["movie"], slugify(config["city"]))
+    if not movie:
+        log.info(f"'{config['movie']}' not listed on BookMyShow in {config['city']}.")
+        return
+
+    # Step 2: Get all event codes from movie page
+    all_codes = discover_event_codes(session, movie["url"], config["movie"])
+    if not all_codes:
+        all_codes = [movie["event_code"]] if movie.get("event_code") else []
+    if not all_codes:
+        log.error("No event codes found.")
+        return
+
+    # Step 3: Fast pre-filter — only keep codes that belong to this movie + target date
+    valid_codes = filter_valid_codes(
+        session, all_codes, config["movie"], movie["slug"],
+        slugify(config["city"]), config["date"]
+    )
+    if not valid_codes:
+        log.info(f"No shows for {display_date} yet (0/{len(all_codes)} codes have data).")
         if STATE_FILE.exists():
             STATE_FILE.unlink()
         return
 
-    # Check if anything changed
+    # Step 4: Full check on valid codes only (with longer delays)
+    log.info(f"Checking {len(valid_codes)} valid codes (of {len(all_codes)} total)...")
+    matched = check_showtimes(config, valid_codes, movie["slug"])
+
+    if not matched:
+        log.info(f"No shows at your theatres for {display_date} yet.")
+        if STATE_FILE.exists():
+            STATE_FILE.unlink()
+        return
+
+    # Step 4: Check for changes
     current = json.dumps(matched, sort_keys=True)
     current_hash = hashlib.md5(current.encode()).hexdigest()
 
@@ -196,11 +331,12 @@ def main():
         theatre_html += f"<p><strong>{theatre}</strong><br>{time_str}</p>"
 
     send_email(
-        f"🎬 Project Hail Mary — NEW shows at AMB/ALLU! ({display_date})",
+        config,
+        f"🎬 {config['movie']} — NEW shows! ({display_date})",
         f"""
-        <h2>🎬 Project Hail Mary — shows for {display_date}!</h2>
+        <h2>🎬 {config['movie']} — shows for {display_date}!</h2>
         {theatre_html}
-        <p><a href="https://in.bookmyshow.com/hyderabad/movies/project-hail-mary/ET00451760">👉 Book on BookMyShow</a></p>
+        <p><a href="{movie['url']}">👉 Book on BookMyShow</a></p>
         """
     )
 

@@ -2,9 +2,22 @@ name: Check BookMyShow Shows
 
 on:
   schedule:
-    # Run at minutes 7 and 37 past every hour (avoids top-of-hour congestion)
+    # Runs at :07, :22, :37, :52 past every hour (avoids top-of-hour congestion)
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
+    inputs:
+      movie:
+        description: 'Movie name (e.g. Project Hail Mary)'
+        required: false
+      city:
+        description: 'City (e.g. Hyderabad)'
+        required: false
+      date:
+        description: 'Date in YYYYMMDD format (e.g. 20260426)'
+        required: false
+      theatres:
+        description: 'Theatres to watch, comma-separated (e.g. AMB Cinemas, Allu Cinemas)'
+        required: false
 
 jobs:
   check:
@@ -35,8 +48,12 @@ jobs:
 
       - name: Check for shows
         env:
-          TARGET_DATE: "20260426"
-          EVENT_CODES: "ET00451760,ET00492371"
+          # Manual inputs override config.yml
+          MOVIE: ${{ inputs.movie }}
+          CITY: ${{ inputs.city }}
+          TARGET_DATE: ${{ inputs.date }}
+          THEATRES: ${{ inputs.theatres }}
+          # Email config from secrets
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
