@@ -1,11 +1,7 @@
-# BMS Show Notifier Configuration
-# Edit these values to track any movie at any theatre
-
-movie: "Project Hail Mary"
+movie: "Michael"
 city: "Hyderabad"
-date: "20260426"  # YYYYMMDD format
-
-# Theatres to watch (case-insensitive partial match)
+date: "20260427"  # Monday April 27
 theatres:
   - "AMB Cinemas"
   - "Allu Cinemas"
+  - "Aparna Cinemas"

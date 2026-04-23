@@ -124,16 +124,26 @@ def discover_movie(session, movie_name, city_slug):
 
 
 def discover_event_codes(session, movie_url, movie_name):
-    """Get all event codes (formats/languages) for the movie."""
+    """Get event codes specific to this movie only (not other movies on the page)."""
     log.info("Discovering event codes...")
     try:
         r = session.get(movie_url, timeout=20)
         if r.status_code != 200:
             return []
 
-        all_codes = set(re.findall(r'(ET\d{8,})', r.text))
-        log.info(f"Found {len(all_codes)} event codes on movie page")
-        return list(all_codes)
+        movie_slug = re.search(r'/movies/([^/]+)/', movie_url)
+        slug = movie_slug.group(1) if movie_slug else slugify(movie_name)
+
+        # Method 1: Find codes linked with this movie's slug in URLs
+        slug_codes = re.findall(rf'{re.escape(slug)}[^"]*?(ET\d{{8,}})', r.text, re.IGNORECASE)
+
+        # Method 2: Find eventCode fields in Redux JSON
+        json_codes = re.findall(r'"eventCode":"(ET\d{8,})"', r.text)
+
+        # Combine and deduplicate
+        all_codes = list(dict.fromkeys(slug_codes + json_codes))
+        log.info(f"Found {len(all_codes)} movie-specific event codes")
+        return all_codes
     except Exception as e:
         log.error(f"Error getting event codes: {e}")
         return []
