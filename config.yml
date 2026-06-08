@@ -1,21 +1,17 @@
-# BMS Show Notifier Configuration
-
 city: "Hyderabad"
 
 movies:
-  - name: "Michael"
-    dates:                     # Single date or multiple dates
-      - "20260427"
-    theatres:                  # Optional — omit to get notified for all theatres
-      - "AMB Cinemas"
-      - "Allu Cinemas"
-      - "Aparna Cinemas"
-
-  - name: "Project Hail Mary"
+  # Specific weekend at fixed theatres — book tickets for these shows
+  - name: "Disclosure Day"
     dates:
-      - "20260425"             # Friday
-      - "20260426"             # Saturday
-      - "20260427"             # Sunday
+      - "20260619"   # Friday
+      - "20260620"   # Saturday
     theatres:
-      - "AMB Cinemas"
+      - "Aparna Neo Mall"
       - "Allu Cinemas"
+      - "AMB Cinemas"
+
+  # No date / no theatre — just notify whenever shows first come up
+  - name: "The Odyssey"
+
+  - name: "Spider-Man: Brand New Day"

@@ -4,3 +4,5 @@ cron.log
 .state_*
 __pycache__/
 *.pyc
+.venv/
+.DS_Store

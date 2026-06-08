@@ -285,6 +285,66 @@ def check_showtimes(city, movie_entry, event_codes, movie_slug):
     return {k: sorted(v) for k, v in matched.items()}
 
 
+def check_availability(city, movie_entry, event_codes, movie_slug):
+    """Check whether booking has opened for a movie (no specific date).
+
+    Used for "notify whenever shows come up" movies. Fetches the buytickets
+    URL without a date appended — BMS serves the earliest available date once
+    booking is open. Returns a dict mapping show dates (YYYYMMDD) to a sorted
+    list of venues that currently have shows (filtered by preferred theatres if
+    any were given).
+    """
+    city_slug = slugify(city)
+    theatres = [t.strip().lower() for t in movie_entry.get("theatres", []) if t.strip()]
+    watch_all = len(theatres) == 0  # No theatres specified = watch all
+    found = {}
+
+    for i, code in enumerate(event_codes):
+        if i > 0:
+            delay = random.uniform(55, 65)
+            log.info(f"Waiting {delay:.0f}s before next request...")
+            time.sleep(delay)
+
+        # No date in the URL — BMS redirects to the earliest open date if booking is live
+        url = f"https://in.bookmyshow.com/movies/{city_slug}/{movie_slug}/buytickets/{code}"
+        html = fetch_page(url)
+        if not html:
+            log.error(f"{code}: Failed to fetch")
+            continue
+
+        # Verify movie
+        search_term = movie_entry["name"].lower().split()[0]
+        title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE)
+        if title_match and search_term not in title_match.group(1).lower():
+            log.warning(f"{code}: Wrong movie")
+            continue
+
+        show_dates = re.findall(r'"showDate":"(\d{8})"', html)
+        if not show_dates:
+            log.info(f"{code}: No shows open yet.")
+            continue
+
+        primary_date = show_dates[0]
+
+        matched_venues = set()
+        for block in re.split(r'(?="venueName")', html):
+            name_match = re.search(r'"venueName":"([^"]+)"', block)
+            if not name_match:
+                continue
+            venue = name_match.group(1)
+            if not watch_all and not any(t in venue.lower() for t in theatres):
+                continue
+            matched_venues.add(venue)
+
+        # Notify when watching all theatres (even if venue parsing is empty),
+        # or when at least one preferred theatre has a show.
+        if watch_all or matched_venues:
+            found.setdefault(primary_date, set()).update(matched_venues)
+            log.info(f"{code}: shows open for {primary_date}")
+
+    return {d: sorted(v) for d, v in found.items()}
+
+
 def send_email(config, subject, body):
     if not all([config["smtp_user"], config["smtp_password"], config["notify_email"]]):
         log.warning(f"Email not configured. SUBJECT: {subject}")
@@ -327,8 +387,8 @@ def main():
         dates = movie_entry.get("dates", [])
         theatres = movie_entry.get("theatres", [])
 
-        if not movie_name or not dates:
-            log.error(f"Skipping entry — name and dates are required: {movie_entry}")
+        if not movie_name:
+            log.error(f"Skipping entry — name is required: {movie_entry}")
             continue
 
         # Step 1: Find the movie (once per movie, reuse across dates)
@@ -343,6 +403,52 @@ def main():
             all_codes = [movie["event_code"]] if movie.get("event_code") else []
         if not all_codes:
             log.error("No event codes found.")
+            continue
+
+        # No dates given → "notify whenever shows come up" mode
+        if not dates:
+            log.info(f"--- {movie_name} (availability watch) ---")
+            if theatres:
+                log.info(f"Watching: {', '.join(theatres)}")
+            else:
+                log.info("Watching: all theatres")
+
+            state_file = Path(__file__).parent / f".state_{slugify(movie_name)}_any"
+            avail_entry = {"name": movie_name, "theatres": theatres}
+            available = check_availability(city, avail_entry, all_codes, movie["slug"])
+
+            if not available:
+                log.info("No shows open yet.")
+                if state_file.exists():
+                    state_file.unlink()
+                continue
+
+            current = json.dumps(available, sort_keys=True)
+            current_hash = hashlib.md5(current.encode()).hexdigest()
+
+            if state_file.exists() and state_file.read_text().strip() == current_hash:
+                log.info("No changes since last check.")
+                continue
+
+            state_file.write_text(current_hash)
+
+            date_html = ""
+            for d in sorted(available):
+                disp = f"{d[6:8]}/{d[4:6]}/{d[:4]}"
+                venues = available[d]
+                venue_str = ', '.join(venues) if venues else 'Booking open — check BookMyShow for theatres'
+                log.info(f"✓ NEW: {disp}: {venue_str}")
+                date_html += f"<p><strong>{disp}</strong><br>{venue_str}</p>"
+
+            send_email(
+                config,
+                f"🎬 {movie_name} — booking is open!",
+                f"""
+                <h2>🎬 {movie_name} — shows are now open!</h2>
+                {date_html}
+                <p><a href="{movie['url']}">👉 Book on BookMyShow</a></p>
+                """
+            )
             continue
 
         # Step 3: Check each date

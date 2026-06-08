@@ -31,6 +31,10 @@ movies:
     theatres:
       - "PVR"
       - "INOX"
+
+  - name: "The Odyssey"        # Omit dates entirely to just get
+                               # notified whenever shows first open
+                               # (omit theatres too to watch all)
 ```
   - "Allu Cinemas"
 ```
@@ -84,6 +88,10 @@ You'll receive an email like this when shows are added:
 3. **Checks** each variant for your target date
 4. **Matches** against your preferred theatres
 5. **Notifies** you only when something new appears (no duplicate emails)
+
+> **Availability watch:** If you omit `dates` for a movie, the notifier
+> skips date/theatre matching and simply emails you the moment booking
+> first opens for that movie (any date, any theatre).
 
 ## Run Locally (Optional)
 
