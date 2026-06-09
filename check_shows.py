@@ -97,19 +97,28 @@ def get_session():
 
 
 def fetch_page(url, max_retries=5):
-    """Fetch a BMS page with retries."""
+    """Fetch a BMS page with retries.
+
+    A 403/429 means Cloudflare is rate-limiting/blocking the IP — that needs a
+    real cooldown, so we wait ~1 minute before retrying. Other transient errors
+    get a short delay. Each attempt uses a fresh session for a new TLS
+    fingerprint, which helps slip past the block.
+    """
     for attempt in range(1, max_retries + 1):
+        blocked = False
         try:
             session = requests.Session(impersonate="chrome")
             r = session.get(url, timeout=20)
             if r.status_code == 200:
                 return r.text
             log.warning(f"Attempt {attempt}/{max_retries}: HTTP {r.status_code}")
+            blocked = r.status_code in (403, 429)
         except Exception as e:
             log.warning(f"Attempt {attempt}/{max_retries}: {e}")
 
         if attempt < max_retries:
-            delay = random.uniform(8, 12)
+            # Cloudflare block → wait ~1 min; other transient errors → short delay
+            delay = random.uniform(55, 65) if blocked else random.uniform(8, 12)
             log.info(f"Retrying in {delay:.0f}s...")
             time.sleep(delay)
 
@@ -127,16 +136,14 @@ def discover_movie(session, movie_name, city_slug):
     url = f"https://in.bookmyshow.com/explore/movies-{city_slug}"
     log.info(f"Searching for '{movie_name}' in {city_slug}...")
 
-    try:
-        r = session.get(url, timeout=20)
-        if r.status_code != 200:
-            log.error(f"Movies page returned {r.status_code}")
-            return None
-    except Exception as e:
-        log.error(f"Error loading movies page: {e}")
+    # Route through fetch_page so Cloudflare 403s get retried with a ~1-min
+    # cooldown instead of giving up on the first block.
+    html = fetch_page(url)
+    if not html:
+        log.error("Movies page unavailable after retries")
         return None
 
-    scripts = re.findall(r'<script[^>]*>(.*?)</script>', r.text, re.DOTALL)
+    scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
     search_term = movie_name.lower()
 
     for s in scripts:
@@ -165,27 +172,24 @@ def discover_movie(session, movie_name, city_slug):
 def discover_event_codes(session, movie_url, movie_name):
     """Get event codes specific to this movie only (not other movies on the page)."""
     log.info("Discovering event codes...")
-    try:
-        r = session.get(movie_url, timeout=20)
-        if r.status_code != 200:
-            return []
-
-        movie_slug = re.search(r'/movies/([^/]+)/', movie_url)
-        slug = movie_slug.group(1) if movie_slug else slugify(movie_name)
-
-        # Method 1: Find codes linked with this movie's slug in URLs
-        slug_codes = re.findall(rf'{re.escape(slug)}[^"]*?(ET\d{{8,}})', r.text, re.IGNORECASE)
-
-        # Method 2: Find eventCode fields in Redux JSON
-        json_codes = re.findall(r'"eventCode":"(ET\d{8,})"', r.text)
-
-        # Combine and deduplicate
-        all_codes = list(dict.fromkeys(slug_codes + json_codes))
-        log.info(f"Found {len(all_codes)} movie-specific event codes")
-        return all_codes
-    except Exception as e:
-        log.error(f"Error getting event codes: {e}")
+    # Route through fetch_page so 403s get the retry + ~1-min cooldown.
+    html = fetch_page(movie_url)
+    if not html:
         return []
+
+    movie_slug = re.search(r'/movies/([^/]+)/', movie_url)
+    slug = movie_slug.group(1) if movie_slug else slugify(movie_name)
+
+    # Method 1: Find codes linked with this movie's slug in URLs
+    slug_codes = re.findall(rf'{re.escape(slug)}[^"]*?(ET\d{{8,}})', html, re.IGNORECASE)
+
+    # Method 2: Find eventCode fields in Redux JSON
+    json_codes = re.findall(r'"eventCode":"(ET\d{8,})"', html)
+
+    # Combine and deduplicate
+    all_codes = list(dict.fromkeys(slug_codes + json_codes))
+    log.info(f"Found {len(all_codes)} movie-specific event codes")
+    return all_codes
 
 
 def filter_valid_codes(session, all_codes, movie_name, movie_slug, city_slug, target_date):
