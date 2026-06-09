@@ -38,7 +38,9 @@ def load_config():
         with open(CONFIG_FILE) as f:
             config = yaml.safe_load(f) or {}
 
-    city = os.getenv("CITY", config.get("city", ""))
+    # Use env var only when non-empty; on scheduled GitHub Actions runs the
+    # workflow injects CITY="" (empty), which must NOT override config.yml.
+    city = os.getenv("CITY") or config.get("city", "")
 
     # Build movies list — support both old single-movie and new multi-movie format
     env_movie = os.getenv("MOVIE", "")
@@ -79,8 +81,9 @@ def load_config():
     return {
         "city": city,
         "movies": movies,
-        "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
-        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        # `or` (not getenv default) so empty env vars fall back to the defaults
+        "smtp_server": os.getenv("SMTP_SERVER") or "smtp.gmail.com",
+        "smtp_port": int(os.getenv("SMTP_PORT") or "587"),
         "smtp_user": os.getenv("SMTP_USER", ""),
         "smtp_password": os.getenv("SMTP_PASSWORD", ""),
         "notify_email": os.getenv("NOTIFY_EMAIL", ""),
