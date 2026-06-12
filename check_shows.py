@@ -92,34 +92,65 @@ def load_config():
 
 # --- BMS Functions ---
 
+# Recent, realistic browser fingerprints. We rotate through these across retries
+# so a Cloudflare block on one TLS/JA3 signature can be retried with a different
+# one — the BMS edge intermittently 403s datacenter IPs (e.g. GitHub Actions)
+# and a fresh fingerprint is what occasionally slips through.
+IMPERSONATE_TARGETS = [
+    "chrome131", "chrome136", "chrome142", "chrome146",
+    "edge101", "firefox144", "safari180",
+]
+
+# Headers a real browser sends for a top-level navigation. curl_cffi handles the
+# TLS fingerprint and UA, but these make the request look fully browser-like.
+BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Referer": "https://in.bookmyshow.com/",
+}
+
+
+def new_session(target=None):
+    """Create a curl_cffi session impersonating a (random) recent browser."""
+    return requests.Session(impersonate=target or random.choice(IMPERSONATE_TARGETS))
+
+
 def get_session():
-    return requests.Session(impersonate="chrome")
+    return new_session()
 
 
-def fetch_page(url, max_retries=5):
-    """Fetch a BMS page with retries.
+def fetch_page(url, max_retries=8):
+    """Fetch a BMS page, retrying past intermittent Cloudflare 403s.
 
-    A 403/429 means Cloudflare is rate-limiting/blocking the IP — that needs a
-    real cooldown, so we wait ~1 minute before retrying. Other transient errors
-    get a short delay. Each attempt uses a fresh session for a new TLS
-    fingerprint, which helps slip past the block.
+    BMS's Cloudflare intermittently blocks datacenter IPs (like GitHub Actions)
+    with a 403 regardless of how browser-like the request is — the block is
+    IP-reputation based and probabilistic, not rate based. So each attempt
+    rotates to a different browser fingerprint with a fresh session (that's what
+    occasionally gets through), and delays are kept short since waiting longer
+    does nothing for an IP block.
     """
     for attempt in range(1, max_retries + 1):
-        blocked = False
+        target = IMPERSONATE_TARGETS[(attempt - 1) % len(IMPERSONATE_TARGETS)]
+        rate_limited = False
         try:
-            session = requests.Session(impersonate="chrome")
-            r = session.get(url, timeout=20)
+            session = requests.Session(impersonate=target)
+            r = session.get(url, headers=BROWSER_HEADERS, timeout=20)
             if r.status_code == 200:
                 return r.text
-            log.warning(f"Attempt {attempt}/{max_retries}: HTTP {r.status_code}")
-            blocked = r.status_code in (403, 429)
+            log.warning(f"Attempt {attempt}/{max_retries} [{target}]: HTTP {r.status_code}")
+            rate_limited = r.status_code == 429
         except Exception as e:
-            log.warning(f"Attempt {attempt}/{max_retries}: {e}")
+            log.warning(f"Attempt {attempt}/{max_retries} [{target}]: {e}")
 
         if attempt < max_retries:
-            # Cloudflare block → wait ~1 min; other transient errors → short delay
-            delay = random.uniform(55, 65) if blocked else random.uniform(8, 12)
-            log.info(f"Retrying in {delay:.0f}s...")
+            # IP block isn't time-based → retry quickly with a new fingerprint.
+            # A 429 is a genuine rate-limit, so pause a bit longer for that.
+            delay = random.uniform(15, 25) if rate_limited else random.uniform(4, 8)
             time.sleep(delay)
 
     log.error(f"All {max_retries} attempts failed")
@@ -204,8 +235,8 @@ def filter_valid_codes(session, all_codes, movie_name, movie_slug, city_slug, ta
 
         url = f"https://in.bookmyshow.com/movies/{city_slug}/{movie_slug}/buytickets/{code}/{target_date}"
         try:
-            session = requests.Session(impersonate="chrome")
-            r = session.get(url, timeout=15)
+            session = new_session()
+            r = session.get(url, headers=BROWSER_HEADERS, timeout=15)
             if r.status_code != 200:
                 continue
 
