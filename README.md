@@ -134,6 +134,6 @@ Or go to **Actions** → **Check BookMyShow Shows** → **⋯** → **Disable wo
 
 ## Limitations
 
-- BMS may intermittently block GitHub Actions IPs (Cloudflare). The script retries up to 5 times.
+- BMS's Cloudflare intermittently 403s datacenter IPs (e.g. GitHub Actions). The script works around this by retrying each request up to 8 times, rotating through a different browser fingerprint (TLS/JA3) on each attempt — a 403 on one fingerprint usually succeeds on the next.
 - Date-specific showtime data is accurate, but exact show times may only appear in the Redux JSON for some formats.
 - Running locally from a residential IP is more reliable than GitHub Actions.

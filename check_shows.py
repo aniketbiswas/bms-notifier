@@ -95,9 +95,10 @@ def load_config():
 # Recent, realistic browser fingerprints. We rotate through these across retries
 # so a Cloudflare block on one TLS/JA3 signature can be retried with a different
 # one — the BMS edge intermittently 403s datacenter IPs (e.g. GitHub Actions)
-# and a fresh fingerprint is what occasionally slips through.
+# and a fresh fingerprint is what occasionally slips through. Ordered with the
+# fingerprints observed to pass BMS's edge most reliably first.
 IMPERSONATE_TARGETS = [
-    "chrome131", "chrome136", "chrome142", "chrome146",
+    "chrome136", "chrome142", "chrome146", "chrome131",
     "edge101", "firefox144", "safari180",
 ]
 
