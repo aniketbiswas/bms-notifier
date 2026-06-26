@@ -1,22 +1,18 @@
 city: "Hyderabad"
 
 movies:
-  # Specific weekend at fixed theatres — book tickets for these shows
-  - name: "Disclosure Day"
-    dates:
-      - "20260619"   # Friday
-      - "20260620"   # Saturday
+  # No date — notify whenever shows come up, only at the top theatres or a Dolby cinema.
+  # ("Dolby" matches any venue with Dolby in its name, e.g. a Dolby Cinema screen.)
+  - name: "The Odyssey"
     theatres:
       - "Aparna Neo Mall"
       - "Allu Cinemas"
       - "AMB Cinemas"
+      - "Dolby"
 
-  # No date / no theatre — just notify whenever shows first come up
-  - name: "The Odyssey"
-
-  # No date — notify whenever shows come up, but only at the top theatres
   - name: "Spider-Man: Brand New Day"
     theatres:
       - "Aparna Neo Mall"
       - "Allu Cinemas"
       - "AMB Cinemas"
+      - "Dolby"
