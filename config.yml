@@ -1,9 +1,28 @@
 city: "Hyderabad"
 
 movies:
-  # No date — notify whenever shows come up, only at the top theatres or a Dolby cinema.
-  # ("Dolby" matches any venue with Dolby in its name, e.g. a Dolby Cinema screen.)
+  # Watch for shows in late July and August
   - name: "The Odyssey"
+    dates:
+      # Late July dates
+      - "20260725"  # Friday
+      - "20260726"  # Saturday
+      - "20260727"  # Sunday
+      - "20260728"  # Monday
+      - "20260729"  # Tuesday
+      - "20260730"  # Wednesday
+      - "20260731"  # Thursday
+      # Early-Mid August dates
+      - "20260801"  # Friday
+      - "20260802"  # Saturday
+      - "20260803"  # Sunday
+      - "20260804"  # Monday
+      - "20260805"  # Tuesday
+      - "20260806"  # Wednesday
+      - "20260807"  # Thursday
+      - "20260808"  # Friday
+      - "20260809"  # Saturday
+      - "20260810"  # Sunday
     theatres:
       - "Aparna Neo Mall"
       - "Allu Cinemas"
@@ -11,6 +30,26 @@ movies:
       - "Dolby"
 
   - name: "Spider-Man: Brand New Day"
+    dates:
+      # Late July dates
+      - "20260725"  # Friday
+      - "20260726"  # Saturday
+      - "20260727"  # Sunday
+      - "20260728"  # Monday
+      - "20260729"  # Tuesday
+      - "20260730"  # Wednesday
+      - "20260731"  # Thursday
+      # Early-Mid August dates
+      - "20260801"  # Friday
+      - "20260802"  # Saturday
+      - "20260803"  # Sunday
+      - "20260804"  # Monday
+      - "20260805"  # Tuesday
+      - "20260806"  # Wednesday
+      - "20260807"  # Thursday
+      - "20260808"  # Friday
+      - "20260809"  # Saturday
+      - "20260810"  # Sunday
     theatres:
       - "Aparna Neo Mall"
       - "Allu Cinemas"
