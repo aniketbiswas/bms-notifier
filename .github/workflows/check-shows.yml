@@ -2,10 +2,7 @@ name: Check BookMyShow Shows
 
 on:
   schedule:
-    # PAUSED: Restarting from Monday, July 7, 2026
-    # Runs at :07, :22, :37, :52 past every hour starting July 7
-    - cron: '7,22,37,52 * 7-31 7 *'   # July 7-31
-    - cron: '7,22,37,52 * 1-31 8 *'   # August 1-31
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       movie:
@@ -21,9 +18,17 @@ on:
         description: 'Theatres to watch, comma-separated (e.g. AMB Cinemas, Allu Cinemas)'
         required: false
 
+permissions:
+  contents: read
+
+concurrency:
+  group: bms-show-check
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -38,15 +43,10 @@ jobs:
       - name: Restore state
         uses: actions/cache@v4
         with:
-          path: .last_state
+          path: |
+            .state_*
           key: bms-state-${{ github.run_id }}
           restore-keys: bms-state-
-
-      - name: Seed state if first run
-        run: |
-          if [ ! -f .last_state ]; then
-            echo "none" > .last_state
-          fi
 
       - name: Check for shows
         env:

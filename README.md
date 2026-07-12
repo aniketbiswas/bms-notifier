@@ -36,8 +36,57 @@ movies:
                                # notified whenever shows first open
                                # (omit theatres too to watch all)
 ```
-  - "Allu Cinemas"
+
+### Filter by show type, time, or seat
+
+Filters are optional and require explicit dates. Seat checks run only after a
+show matches the theatre, type, and time filters.
+
+```yaml
+movies:
+  - name: "The Odyssey"
+    dates:
+      - "20260725"
+    theatres:
+      - "AMB Cinemas"
+    filters:
+      show_types:               # Case-insensitive match against BMS's
+        - "Dolby Atmos"         # auditorium/session label
+      showtimes:                # Optional 24-hour window
+        after: "18:00"
+        before: "23:30"
+      seats:
+        position: "backmost"
+        count: 2                # Contiguous seats, from 1 to 6
+        categories:             # Optional; omit to allow every category
+          - "Gold"
+          - "Loungers"
 ```
+
+`backmost` uses the physical row order in each auditorium's BookMyShow layout,
+not alphabetical row labels. BookMyShow renders its screen after the row list,
+so the notifier watches the first eligible physical row and prefers the
+contiguous block closest to that row's horizontal centre. If that row has no
+suitable block, no alert is sent until one opens.
+
+Common `show_types` values include `Dolby Atmos`, `IMAX`, `PCX Screen`, and
+`4DX`, but labels are supplied by each theatre and can differ.
+
+### Active watch in this repository
+
+The checked-in `config.yml` currently watches `The Odyssey` and
+`Spider-Man: Brand New Day` for every date from 25 July through 10 August 2026
+at these exact BookMyShow venues:
+
+- `AMB Cinemas: Gachibowli`
+- `ALLU Cinemas: Kokapet`
+- `PVR Superplex Inorbit: LUXE, PXL, 4DX: Cyberabad`
+
+Each matching session must have one available seat in its physical backmost
+row. There is currently no show-type, time, category, or maximum-price filter,
+so every auditorium and showtime at those venues is eligible. In particular,
+the Inorbit venue name includes `LUXE`, `PXL`, and `4DX`; it does not restrict
+the watch to LUXE sessions unless `filters.show_types` is configured.
 
 ### 3. Set up email notifications
 
@@ -74,10 +123,10 @@ movies:
 
 You'll receive an email like this when shows are added:
 
-> **🎬 Project Hail Mary — NEW shows!**
+> **🎬 The Odyssey — NEW shows!**
 >
 > **AMB Cinemas: Gachibowli**
-> 10:25 PM
+> 08:10 PM · DOLBY ATMOS · PLATINUM row A · A6
 >
 > 👉 Book on BookMyShow
 
@@ -87,11 +136,12 @@ You'll receive an email like this when shows are added:
 2. **Finds** all format/language variants (event codes) for that movie
 3. **Checks** each variant for your target date
 4. **Matches** against your preferred theatres
-5. **Notifies** you only when something new appears (no duplicate emails)
+5. **Filters** matching sessions and checks their live seat layouts when configured
+6. **Notifies** you only when something new appears (no duplicate emails)
 
-> **Availability watch:** If you omit `dates` for a movie, the notifier
-> skips date/theatre matching and simply emails you the moment booking
-> first opens for that movie (any date, any theatre).
+> **Availability watch:** If you omit `dates` for a movie, the notifier emails
+> when booking first opens on any date. Configured theatre filters still apply;
+> show-time and seat filters require explicit dates.
 
 ## Run Locally (Optional)
 
@@ -107,7 +157,14 @@ SMTP_USER='you@gmail.com' SMTP_PASSWORD='your-app-password' NOTIFY_EMAIL='you@gm
 
 # Set up cron (every 15 min)
 crontab -e
-# Add: */15 * * * * cd /path/to/bms-notifier && SMTP_USER='...' SMTP_PASSWORD='...' NOTIFY_EMAIL='...' python3 check_shows.py >> bms.log 2>&1
+# Add: */15 * * * * cd /path/to/bms-notifier && SMTP_USER='...' SMTP_PASSWORD='...' NOTIFY_EMAIL='...' python3 check_shows.py >/dev/null 2>&1
+```
+
+## Run Tests
+
+```bash
+python -m unittest discover -s tests -v
+python -m py_compile check_shows.py
 ```
 
 ## Manual Trigger with Custom Inputs
@@ -135,5 +192,7 @@ Or go to **Actions** → **Check BookMyShow Shows** → **⋯** → **Disable wo
 ## Limitations
 
 - BMS's Cloudflare intermittently 403s datacenter IPs (e.g. GitHub Actions). The script works around this by retrying each request up to 8 times, rotating through a different browser fingerprint (TLS/JA3) on each attempt — a 403 on one fingerprint usually succeeds on the next.
+- Seat monitoring uses BookMyShow's private web-client endpoint. It is not an official public API and may require parser or encryption-key updates when BMS changes its site.
 - Date-specific showtime data is accurate, but exact show times may only appear in the Redux JSON for some formats.
 - Running locally from a residential IP is more reliable than GitHub Actions.
+- GitHub Actions schedules can start later than the requested 15-minute interval during busy periods.

@@ -5,53 +5,59 @@ movies:
   - name: "The Odyssey"
     dates:
       # Late July dates
-      - "20260725"  # Friday
-      - "20260726"  # Saturday
-      - "20260727"  # Sunday
-      - "20260728"  # Monday
-      - "20260729"  # Tuesday
-      - "20260730"  # Wednesday
-      - "20260731"  # Thursday
+      - "20260725"  # Saturday
+      - "20260726"  # Sunday
+      - "20260727"  # Monday
+      - "20260728"  # Tuesday
+      - "20260729"  # Wednesday
+      - "20260730"  # Thursday
+      - "20260731"  # Friday
       # Early-Mid August dates
-      - "20260801"  # Friday
-      - "20260802"  # Saturday
-      - "20260803"  # Sunday
-      - "20260804"  # Monday
-      - "20260805"  # Tuesday
-      - "20260806"  # Wednesday
-      - "20260807"  # Thursday
-      - "20260808"  # Friday
-      - "20260809"  # Saturday
-      - "20260810"  # Sunday
+      - "20260801"  # Saturday
+      - "20260802"  # Sunday
+      - "20260803"  # Monday
+      - "20260804"  # Tuesday
+      - "20260805"  # Wednesday
+      - "20260806"  # Thursday
+      - "20260807"  # Friday
+      - "20260808"  # Saturday
+      - "20260809"  # Sunday
+      - "20260810"  # Monday
     theatres:
-      - "Aparna Neo Mall"
-      - "Allu Cinemas"
-      - "AMB Cinemas"
-      - "Dolby"
+      - "AMB Cinemas: Gachibowli"
+      - "ALLU Cinemas: Kokapet"
+      - "PVR Superplex Inorbit: LUXE, PXL, 4DX: Cyberabad"
+    filters:
+      seats:
+        position: "backmost"
+        count: 1
 
   - name: "Spider-Man: Brand New Day"
     dates:
       # Late July dates
-      - "20260725"  # Friday
-      - "20260726"  # Saturday
-      - "20260727"  # Sunday
-      - "20260728"  # Monday
-      - "20260729"  # Tuesday
-      - "20260730"  # Wednesday
-      - "20260731"  # Thursday
+      - "20260725"  # Saturday
+      - "20260726"  # Sunday
+      - "20260727"  # Monday
+      - "20260728"  # Tuesday
+      - "20260729"  # Wednesday
+      - "20260730"  # Thursday
+      - "20260731"  # Friday
       # Early-Mid August dates
-      - "20260801"  # Friday
-      - "20260802"  # Saturday
-      - "20260803"  # Sunday
-      - "20260804"  # Monday
-      - "20260805"  # Tuesday
-      - "20260806"  # Wednesday
-      - "20260807"  # Thursday
-      - "20260808"  # Friday
-      - "20260809"  # Saturday
-      - "20260810"  # Sunday
+      - "20260801"  # Saturday
+      - "20260802"  # Sunday
+      - "20260803"  # Monday
+      - "20260804"  # Tuesday
+      - "20260805"  # Wednesday
+      - "20260806"  # Thursday
+      - "20260807"  # Friday
+      - "20260808"  # Saturday
+      - "20260809"  # Sunday
+      - "20260810"  # Monday
     theatres:
-      - "Aparna Neo Mall"
-      - "Allu Cinemas"
-      - "AMB Cinemas"
-      - "Dolby"
+      - "AMB Cinemas: Gachibowli"
+      - "ALLU Cinemas: Kokapet"
+      - "PVR Superplex Inorbit: LUXE, PXL, 4DX: Cyberabad"
+    filters:
+      seats:
+        position: "backmost"
+        count: 1
